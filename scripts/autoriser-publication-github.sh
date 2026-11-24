@@ -12,7 +12,24 @@ g=(gcloud --project="$project" --quiet)
 "${g[@]}" iam workload-identity-pools describe "$pool" --location=global >/dev/null 2>&1 || "${g[@]}" iam workload-identity-pools create "$pool" --location=global --display-name='Parlement Citoyen GitHub'
 condition="assertion.repository_id=='1470066020' && assertion.repository_owner_id=='331737602' && assertion.workflow_ref.startsWith('gkerckhofs-a11y/Parlement-Citoyen/.github/workflows/firebase-production.yml@') && (assertion.ref=='refs/heads/main' || assertion.ref.startsWith('refs/tags/publication-'))"
 "${g[@]}" iam workload-identity-pools providers describe github --workload-identity-pool="$pool" --location=global >/dev/null 2>&1 || "${g[@]}" iam workload-identity-pools providers create-oidc github --workload-identity-pool="$pool" --location=global --display-name=GitHub --issuer-uri=https://token.actions.githubusercontent.com --attribute-mapping='google.subject=assertion.sub,attribute.repository_id=assertion.repository_id' --attribute-condition="$condition"
-"${g[@]}" iam service-accounts add-iam-policy-binding "$sa" --member="principalSet://iam.googleapis.com/projects/$number/locations/global/workloadIdentityPools/$pool/attribute.repository_id/1470066020" --role=roles/iam.workloadIdentityUser >/dev/null
+# A newly created account can take time to resolve by email.
+sa_id=$("${g[@]}" iam service-accounts describe "$sa" --format='value(uniqueId)')
+[[ "$sa_id" =~ ^[0-9]+$ ]]
+bound=false
+for delay in 0 5 15 30; do
+  sleep "$delay"
+  if "${g[@]}" iam service-accounts add-iam-policy-binding "$sa_id" --member="principalSet://iam.googleapis.com/projects/$number/locations/global/workloadIdentityPools/$pool/attribute.repository_id/1470066020" --role=roles/iam.workloadIdentityUser >/dev/null; then
+    bound=true
+    break
+  fi
+done
+if [[ "$bound" != true ]]; then
+  echo "Autorisation GitHub non installée. Vérification IAM en lecture seule :" >&2
+  actor=$(gcloud config get-value account)
+  "${g[@]}" policy-troubleshoot iam "//iam.googleapis.com/projects/$project/serviceAccounts/$sa" --principal-email="$actor" --permission=iam.serviceAccounts.setIamPolicy || true
+  echo "Si le refus est confirmé, faire vérifier iam.serviceAccounts.getIamPolicy et iam.serviceAccounts.setIamPolicy sur $sa par un administrateur IAM." >&2
+  exit 1
+fi
 for role in firebasehosting.admin firebaserules.admin cloudfunctions.developer serviceusage.serviceUsageConsumer firebase.viewer secretmanager.viewer; do
   "${g[@]}" projects add-iam-policy-binding "$project" --member="serviceAccount:$sa" --role="roles/$role" --condition=None >/dev/null
 done

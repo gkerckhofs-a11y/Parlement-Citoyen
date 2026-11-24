@@ -1,0 +1,108 @@
+/* Projected committee sessions share an address and a cursor with their own control desk. */
+body:has(.commission-stage) > header #session,
+body:has(.commission-stage) > #feedback:empty {
+  display: none;
+}
+.projector.commission-stage {
+  padding: clamp(6px, 1.5vmin, 24px) clamp(6px, 2.1vw, 40px);
+}
+.commission-card.stage-card {
+  border-top-color: var(--ink);
+  padding: 0;
+  gap: 0;
+  border-radius: 6px;
+}
+.commission-card.stage-card .measure-banner {
+  height: 27%;
+  border-radius: 2px 2px 0 0;
+  object-fit: cover;
+  object-position: center 42%;
+}
+.commission-card .stage-text {
+  margin: clamp(7px, 2.1vmin, 30px) clamp(9px, 3.3vw, 68px);
+  gap: 0.35em;
+}
+.commission-card .commission-caption {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  font-size: 0.78em;
+  font-weight: 650;
+  line-height: 1.15;
+}
+.commission-caption .room-mark {
+  margin: 0;
+  width: 1.6em;
+  height: 1.6em;
+}
+.commission-caption .icon {
+  width: 1.13em;
+  height: 1.13em;
+}
+.commission-card .commission-context {
+  color: var(--mute);
+  font-size: 0.8em;
+  line-height: 1.18;
+}
+.commission-card .stage-text h1 {
+  font-size: 1.58em;
+  line-height: 1.04;
+}
+.commission-card .stage-text p {
+  max-width: 76ch;
+  line-height: 1.29;
+}
+.commission-card .commission-rows {
+  width: 100%;
+}
+.commission-card .commission-rows li {
+  padding: 0.23em 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.48em;
+  line-height: 1.17;
+}
+.commission-option {
+  min-width: 0;
+}
+.commission-option .icon {
+  margin-right: 0.4em;
+  width: 1em;
+  height: 1em;
+}
+.commission-selected {
+  display: inline;
+  margin-left: 0.6em;
+  color: var(--good);
+  font-size: 0.82em;
+}
+.commission-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  flex: none;
+  white-space: nowrap;
+}
+.commission-trends .commission-value {
+  flex: 0 1 auto;
+  white-space: normal;
+}
+.commission-value .effect {
+  font-size: 0.9em;
+}
+@media (max-height: 520px) {
+  body:has(.commission-stage) > header {
+    min-height: 42px;
+    padding-block: 4px;
+  }
+  body:has(.commission-stage) .seal {
+    width: 29px;
+    height: 29px;
+  }
+  .commission-stage .projection-tools button {
+    min-height: 31px;
+    padding-block: 3px;
+  }
+  .commission-card.stage-card .measure-banner {
+    height: 20%;
+  }
+}

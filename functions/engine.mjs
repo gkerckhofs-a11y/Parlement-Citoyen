@@ -5,7 +5,7 @@ import {
   createHmac,
   timingSafeEqual,
 } from "node:crypto";
-import { plenarySlides, currentSlide } from "./plenary.mjs";
+import { plenarySlides, currentSlide, publishedAmendment } from "./plenary.mjs";
 import { check, validate, dimensions } from "./scenario.mjs";
 const now = () => new Date().toISOString();
 const str = (v, max = 2400) => {
@@ -139,6 +139,19 @@ const full = (a) => a.role === "Régie";
 const chair = (a) => full(a) || a.role === "Présidence";
 const controls = (a, r) =>
   chair(a) || (a.role === "Modérateur" && a.room === r);
+function deadline(minutes) {
+  if (minutes === "" || minutes == null) return 0;
+  const duration = Number(minutes);
+  check(
+    (typeof minutes === "number" ||
+      (typeof minutes === "string" && /^\d+$/.test(minutes))) &&
+      Number.isInteger(duration) &&
+      duration >= 1 &&
+      duration <= 180,
+    "Durée attendue entre 1 et 180 minutes.",
+  );
+  return Date.now() + duration * 60000;
+}
 const note = (s, a, what, reason = "") =>
   s.events.push({ time: now(), actor: a.id, what, reason });
 const measure = (s, id) => {
@@ -163,6 +176,13 @@ const electorate = (s, p) =>
       a.present &&
       (p.kind === "plenary" || a.room === p.room),
   );
+function showRoomSlide(room, id, measureId) {
+  if (measureId && room.focus !== measureId) {
+    room.focus = measureId;
+    room.until = 0;
+  }
+  room.displaySlide = id;
+}
 function start(s, room, kind, options, seats, extra = {}) {
   let p = {
     id: randomUUID(),
@@ -181,7 +201,7 @@ function start(s, room, kind, options, seats, extra = {}) {
   p.eligible = electorate(s, p).map((a) => a.id);
   s.polls.push(p);
   if (kind === "plenary") s.plenarySlide = "duel-" + room;
-  else s.rooms[room].displaySlide = "poll-" + p.id;
+  else showRoomSlide(s.rooms[room], "poll-" + p.id, p.base);
   return p;
 }
 export function tally(p) {
@@ -268,14 +288,17 @@ export function act(s, a, x) {
   if (type === "presentSlide") {
     check(x.room ? r && controls(a, x.room) : chair(a));
     const slides = plenarySlides(s, x.room);
+    const selected = slides.find((slide) => slide.id === x.slide);
+    check(selected, "Cette diapositive n’est plus disponible.");
+    const setTimer = Object.hasOwn(x, "minutes");
     check(
-      slides.some((slide) => slide.id === x.slide),
-      "Cette diapositive n’est plus disponible.",
+      !setTimer || (x.room && selected.kind === "Débat"),
+      "Le minuteur accompagne un débat en commission.",
     );
+    const until = setTimer ? deadline(x.minutes) : undefined;
     if (x.room) {
-      r.displaySlide = x.slide;
-      const image = slides.find((slide) => slide.id === x.slide)?.image;
-      if (image) r.focus = image;
+      showRoomSlide(r, selected.id, selected.measure);
+      if (setTimer) r.until = until;
     } else {
       s.plenarySlide = x.slide;
       s.showBalance = false;
@@ -544,7 +567,7 @@ export function act(s, a, x) {
           2,
         );
       } else {
-        check(!r.locked && m?.room === x.room);
+        check(x.kind === "amend" && !r.locked && m?.room === x.room);
         let opts = s.amends
           .filter((v) => v.measure === m.id && v.status === "admissible")
           .map((v) => v.id);
@@ -651,6 +674,9 @@ export function act(s, a, x) {
     ].includes(type)
   ) {
     check(p && controls(a, p.room) && (p.kind !== "plenary" || chair(a)));
+    const reason = ["restart", "resume", "suspend", "draw"].includes(type)
+      ? str(x.reason)
+      : "";
     if (type === "suspend") {
       check(p.status === "ouvert");
       p.status = "suspendu";
@@ -712,16 +738,9 @@ export function act(s, a, x) {
     }
     if (["announce", "close", "draw"].includes(type)) {
       if (p.kind === "plenary") s.plenarySlide = "duel-" + p.room;
-      else s.rooms[p.room].displaySlide = "poll-" + p.id;
+      else showRoomSlide(s.rooms[p.room], "poll-" + p.id, p.base);
     }
-    note(
-      s,
-      a,
-      type + " " + p.id,
-      ["restart", "resume", "suspend", "draw"].includes(type)
-        ? str(x.reason)
-        : "",
-    );
+    note(s, a, type + " " + p.id, reason);
     return;
   }
   if (type === "resolveReport") {
@@ -987,16 +1006,30 @@ export function view(s, a) {
     reporter = a.role === "Journaliste",
     pack = s.pack;
   const rooms = Object.fromEntries(
-    Object.entries(s.rooms).filter(
-      ([id]) => !projection || !a.room || id === a.room,
-    ),
+    Object.entries(s.rooms)
+      .filter(([id]) => !projection || !a.room || id === a.room)
+      .map(
+        ([
+          id,
+          { focus, finalists, winner, official, locked, displaySlide, until },
+        ]) => [
+          id,
+          { focus, finalists, winner, official, locked, displaySlide, until },
+        ],
+      ),
   );
   const visiblePolls = s.polls.filter(
-    (p) => rooms[p.room] && p.status !== "invalidé",
+    (p) =>
+      rooms[p.room] &&
+      p.status !== "invalidé" &&
+      !(projection && a.room && p.kind === "plenary"),
   );
+  const announcedProfiles = projection
+    ? new Set(s.amends.filter(publishedAmendment).map((v) => v.profile))
+    : null;
   const mediaName = (g) => pack.media[Number(g.slice(1))];
   const polls = visiblePolls.map((p) => {
-    const ctrl = controls(a, p.room),
+    const ctrl = p.kind === "plenary" ? staff : controls(a, p.room),
       announced = ["annoncé", "égalité"].includes(p.status);
     return {
       id: p.id,
@@ -1044,7 +1077,9 @@ export function view(s, a) {
       .map((m) => ({
         ...publicVersion(m),
         room: m.room,
-        variants: m.variants.map(publicVersion),
+        variants: m.variants
+          .filter((v) => !announcedProfiles || announcedProfiles.has(v.id))
+          .map(publicVersion),
         official: publicVersion(official(s, m)),
         caution: m.caution,
       })),
@@ -1054,22 +1089,32 @@ export function view(s, a) {
           rooms[v.room] &&
           (controls(a, v.room) ||
             (v.room === a.room && !projection) ||
-            [
-              "admissible",
-              "adopté",
-              "rejeté",
-              "écarté au tour préliminaire",
-            ].includes(v.status)),
+            publishedAmendment(v)),
       )
-      .map(({ sign, merge, ...v }) => ({
-        ...v,
-        ...(merge
-          ? { mergeText: merge.text, mergeAuthor: sign[0] === a.id }
-          : {}),
-        support: sign.length,
-        signed: sign.includes(a.id),
-        author: sign[0] === a.id,
-      })),
+      .map(({ sign, merge, ...v }) => {
+        if (projection || (!controls(a, v.room) && a.room !== v.room)) {
+          const { id, measure, room, text, status, why, source } = v;
+          return {
+            id,
+            measure,
+            room,
+            text,
+            status,
+            why,
+            source,
+            support: sign.length,
+          };
+        }
+        return {
+          ...v,
+          ...(merge
+            ? { mergeText: merge.text, mergeAuthor: sign[0] === a.id }
+            : {}),
+          support: sign.length,
+          signed: sign.includes(a.id),
+          author: sign[0] === a.id,
+        };
+      }),
     news: s.articles
       .filter((v) => v.public)
       .map((v) => ({
@@ -1092,19 +1137,25 @@ export function view(s, a) {
     for (const scope of stages) {
       const slides = plenarySlides(s, scope),
         selected = currentSlide(s, slides, scope);
+      const { openKind, ...publicSlide } = selected;
       const stage = {
-        current: selected,
+        current: projection ? publicSlide : selected,
         position: slides.indexOf(selected) + 1,
         total: slides.length,
       };
       if (!projection)
-        stage.menu = slides.map(({ id, kind, room, title, part }) => ({
-          id,
-          kind,
-          room,
-          title,
-          part,
-        }));
+        stage.menu = slides.map(
+          ({ id, kind, room, title, part, measure, amendment, version }) => ({
+            id,
+            kind,
+            room,
+            title,
+            part,
+            ...(measure ? { measure } : {}),
+            ...(amendment ? { amendment } : {}),
+            ...(version ? { version } : {}),
+          }),
+        );
       result.presentations[scope || "plenary"] = stage;
     }
   }
@@ -1114,6 +1165,17 @@ export function view(s, a) {
       result.summary = { dimensions, initial, final, chosen };
     }
     return result;
+  }
+  if (a.present && (staff || a.role === "Modérateur")) {
+    const screenAccess = (room) => {
+      const id = "ECR-" + room;
+      return { id, key: token(s, id) };
+    };
+    if (staff)
+      result.roomScreens = Object.fromEntries(
+        Object.keys(rooms).map((id) => [id, screenAccess(id)]),
+      );
+    else result.roomScreen = screenAccess(a.room);
   }
   result.composition = Object.entries(pack.rooms).map(([id, name]) => ({
     name,

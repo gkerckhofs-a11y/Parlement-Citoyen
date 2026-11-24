@@ -1,5 +1,7 @@
+import { commissionDesk } from "./commission-desk.js";
 import { reportRows } from "./report.js";
 import { editor } from "./editor.js";
+import { commissionScreen } from "./commission-screen.js";
 const main = document.querySelector("#main"),
   feedback = document.querySelector("#feedback"),
   sessionLabel = document.querySelector("#session");
@@ -69,7 +71,8 @@ const table = (heads, rows) =>
   "</tbody></table></div>";
 let auth = JSON.parse(sessionStorage.getItem("pc.auth") || "null"),
   v = null,
-  tab = auth?.google ? "Régie" : "Assemblée",
+  tab =
+    auth?.google || ["REG", "PRE"].includes(auth?.id) ? "Régie" : "Assemblée",
   room = "",
   reading = "",
   editing = "",
@@ -265,9 +268,9 @@ const pollLabel = (p) =>
     suspendu: "Scrutin suspendu",
     incident: "Scrutin interrompu",
   })[p.status] || p.status;
-function polls(r) {
+function polls(r, commissionOnly = false) {
   return v.polls
-    .filter((p) => p.room === r)
+    .filter((p) => p.room === r && (!commissionOnly || p.kind !== "plenary"))
     .slice()
     .reverse()
     .map((p) => {
@@ -732,41 +735,18 @@ function assembly() {
   }
   let cmd = "";
   if (allow) {
-    cmd += form(
-      { type: "focus", room },
-      opts(
-        "Texte à projeter",
-        "measure",
-        ms.map((m) => [m.id, m.title]),
-      ) +
-        '<label>Minuteur (minutes)<input type="number" name="minutes" min="1" max="180"></label>',
-      "Afficher en salle",
-    );
-    if (phase === "Commissions" && !r.finalists.length)
-      cmd +=
-        form(
-          { type: "open", kind: "amend", room },
-          opts(
-            "Mesure amendée",
-            "measure",
-            ms.map((m) => [m.id, m.title]),
-          ),
-          "Ouvrir le vote des amendements",
-        ) +
-        btn("Verrouiller l’influence et ouvrir la sélection", {
-          type: "open",
-          room,
-          kind: "selection",
-        });
+    cmd =
+      role() === "Modérateur"
+        ? '<button type="button" data-desk-return>Ouvrir ma régie de commission</button>'
+        : '<button type="button" data-desk-room="' +
+          h(room) +
+          '">Piloter cette commission</button>';
     if (phase === "Plénière" && chair() && !r.winner)
       cmd += btn("Ouvrir le duel de plénière", {
         type: "open",
         room,
         kind: "plenary",
       });
-    cmd =
-      (role() === "Modérateur" ? slideDesk(room) : "") +
-      details("Commandes de salle", cmd);
   }
   let actions = "";
   if (
@@ -1107,7 +1087,59 @@ function accessPanels() {
   }
   return html;
 }
-let controlledStage = "";
+let observingAsModerator = false;
+const preparedMeasures = new Map();
+function changeDesk(scope) {
+  const url = new URL(location.href);
+  if (scope) url.searchParams.set("commission", scope);
+  else url.searchParams.delete("commission");
+  if (url.href !== location.href) history.pushState(null, "", url);
+  tab = "Régie";
+  render();
+  window.scrollTo(0, 0);
+}
+function openDeskScope() {
+  if (role() === "Modérateur") return observingAsModerator ? "" : v.me.room;
+  if (!chair()) return "";
+  const requested = new URLSearchParams(location.search).get("commission");
+  return requested && Object.hasOwn(v.rooms, requested) ? requested : "";
+}
+window.addEventListener("popstate", () => {
+  if (v && chair()) {
+    tab = "Régie";
+    render();
+  }
+});
+function deskDirectory() {
+  return (
+    '<section class="desk-directory"><h2>Régies des commissions</h2><div class="room-board">' +
+    Object.keys(v.rooms)
+      .map((id) => {
+        const stage = v.presentations?.[id]?.current;
+        const moderator = v.roster?.find(
+          (member) => member.role === "Modérateur" && member.room === id,
+        );
+        return (
+          '<div class="desk-room-card"><button type="button" class="room-tile" data-desk-room="' +
+          h(id) +
+          '" aria-label="' +
+          h("Piloter la commission " + v.roomNames[id]) +
+          '">' +
+          roomMark(id) +
+          "<span><strong>" +
+          h(v.roomNames[id]) +
+          "</strong><small>" +
+          h(stage ? stage.kind + " · " + stage.title : "Ouvrir la régie") +
+          "</small></span></button>" +
+          (moderator ? deskLink(moderator, "Accès de l’animateur") : "") +
+          "</div>"
+        );
+      })
+      .join("") +
+    "</div></section>"
+  );
+}
+
 function slideDesk(scope) {
   const deck = v.presentations?.[scope || "plenary"];
   if (!deck?.menu) return "";
@@ -1153,22 +1185,6 @@ function slideDesk(scope) {
   if (!scope && nextPhase) commands += btn(nextPhase, { type: "phase" }, true);
   return (
     '<section class="slide-desk"><h3>Piloter la projection</h3>' +
-    (chair()
-      ? "<label>Salle projetée<select data-stage-scope>" +
-        ["", ...Object.keys(v.rooms)]
-          .map(
-            (id) =>
-              '<option value="' +
-              h(id) +
-              '" ' +
-              (id === scope ? "selected" : "") +
-              ">" +
-              h(v.roomNames[id] || "Plénière") +
-              "</option>",
-          )
-          .join("") +
-        "</select></label>"
-      : "") +
     "<p><strong>À l’écran · " +
     position +
     " / " +
@@ -1208,9 +1224,12 @@ function slideDesk(scope) {
   );
 }
 main.addEventListener("change", (e) => {
-  if (e.target.matches("[data-stage-scope]")) {
-    controlledStage = e.target.value;
+  if (e.target.matches("[data-desk-measure]")) {
+    const scope = openDeskScope();
+    if (!scope) return;
+    preparedMeasures.set(v.code + "/" + scope, e.target.value);
     render();
+    main.querySelector("[data-desk-measure]")?.focus();
   }
   if (e.target.matches("[data-stage-slide]"))
     run({
@@ -1220,6 +1239,19 @@ main.addEventListener("change", (e) => {
     });
 });
 function stageScreen(deck) {
+  if (v.me.room) {
+    const slide = deck?.current;
+    const measure =
+      slide?.image && v.measures.find((m) => m.id === slide.image);
+    return commissionScreen(slide, v.roomNames[v.me.room], {
+      h,
+      mark: roomMark(v.me.room),
+      image: banner(measure),
+      effect,
+      icon,
+      indicators,
+    });
+  }
   const c =
     !v.me.room && v.slide
       ? { kind: "Journal 2040", title: "Le journal du futur", body: v.slide }
@@ -1264,7 +1296,13 @@ function fitStage() {
     text = card?.querySelector(".stage-text");
   if (!text) return;
   let low = 1,
-    high = Math.min(48, Math.max(20, innerWidth / 42));
+    high = card.classList.contains("commission-card")
+      ? Math.min(
+          60,
+          Math.max(20, innerWidth / 30),
+          Math.max(20, innerHeight / 16),
+        )
+      : Math.min(48, Math.max(20, innerWidth / 42));
   for (let i = 0; i < 10; i++) {
     const mid = (low + high) / 2;
     text.style.fontSize = mid + "px";
@@ -1282,33 +1320,10 @@ document.fonts.ready.then(fitStage);
 
 function admin() {
   let out =
-    "<h2>Conduite de séance</h2>" +
-    slideDesk(controlledStage) +
+    deskDirectory() +
+    projectionPanel() +
+    details("Piloter la plénière", slideDesk("")) +
     accessPanels() +
-    '<div class="room-board">' +
-    Object.keys(v.rooms)
-      .map(
-        (k) =>
-          '<button class="room-tile" data-follow="' +
-          h(k) +
-          '">' +
-          roomMark(k) +
-          "<span><strong>" +
-          h(v.roomNames[k]) +
-          "</strong><small>" +
-          h(
-            v.rooms[k].winner
-              ? "Mesure adoptée"
-              : v.rooms[k].finalists.length
-                ? "Finalistes annoncés"
-                : v.polls.filter((p) => p.room === k).length
-                  ? pollLabel(v.polls.filter((p) => p.room === k).at(-1))
-                  : "En débat",
-          ) +
-          "</small></span></button>",
-      )
-      .join("") +
-    "</div>" +
     (v.phase !== "Débriefing"
       ? btn(
           {
@@ -1710,17 +1725,42 @@ function render() {
           ? "Plénière"
           : "Parlement";
     const deck = v.presentations?.[v.me.room || "plenary"];
-    if (deck) main.classList.add("stage");
+    if (deck || v.me.room) main.classList.add("stage");
+    if (v.me.room) main.classList.add("commission-stage");
     main.innerHTML =
       '<div class="projection-tools"><button type="button" data-fullscreen>Plein écran</button></div>' +
-      (deck
+      (deck || v.me.room
         ? stageScreen(deck)
         : v.me.id === "ECR-NEWS"
           ? pressScreen()
           : assembly());
-    if (deck) fitStage();
+    if (deck || v.me.room) fitStage();
     updateFullButton();
     loadPhotos();
+    return;
+  }
+  const scope = openDeskScope();
+  if (scope && v.presentations?.[scope]?.menu) {
+    sessionLabel.textContent = v.roomNames[scope] + " · Régie";
+    main.innerHTML = commissionDesk(
+      v,
+      scope,
+      preparedMeasures.get(v.code + "/" + scope),
+      {
+        h,
+        btn,
+        form,
+        para,
+        details,
+        roomMark,
+        deskLink,
+        pollLabel,
+        name,
+        banner,
+        proposals,
+        polls,
+      },
+    );
     return;
   }
   const participant = !chair();
@@ -1734,7 +1774,6 @@ function render() {
   if (v.balance) tabs.push("Débriefing");
   if (!tabs.includes(tab)) tab = tabs[0];
   main.innerHTML =
-    projectionPanel() +
     '<div class="lead">' +
     tag(v.phase === "Préparation" ? "Préparation en classe" : v.phase) +
     " " +
@@ -1781,6 +1820,9 @@ function render() {
       .map((n) => section("Annonce du Parlement", para(n)))
       .join("") +
     "<nav>" +
+    (role() === "Modérateur"
+      ? '<button type="button" data-desk-return>Ma régie de commission</button>'
+      : "") +
     tabs
       .map(
         (t) =>
@@ -1874,6 +1916,11 @@ async function run(x) {
       return;
     }
     if (x.ui === "exit") {
+      observingAsModerator = false;
+      preparedMeasures.clear();
+      const url = new URL(location.href);
+      url.searchParams.delete("commission");
+      history.replaceState(null, "", url);
       const wasGoogle = auth?.google;
       auth = null;
       v = null;
@@ -1898,7 +1945,11 @@ async function run(x) {
       await call("view", next);
       auth = next;
       sessionStorage.setItem("pc.auth", JSON.stringify(auth));
-      tab = x.ui === "create" ? "Régie" : "Assemblée";
+      observingAsModerator = false;
+      tab =
+        x.ui === "create" || ["REG", "PRE"].includes(next.id)
+          ? "Régie"
+          : "Assemblée";
     } else if (x.ui === "read") {
       await call("action", { ...auth, action: { type: "read", id: x.id } });
       reading = x.id;
@@ -1981,8 +2032,37 @@ async function run(x) {
   }
 }
 main.addEventListener("click", (e) => {
+  if (e.target.closest("[data-examine-amendments]")) {
+    e.preventDefault();
+    const list = main.querySelector("#desk-amendments details");
+    if (list) {
+      list.open = true;
+      list.querySelector("summary").focus();
+      list.scrollIntoView({ block: "start" });
+    }
+    return;
+  }
   let b = e.target.closest("button");
   if (!b) return;
+  if (b.hasAttribute("data-desk-home")) {
+    changeDesk("");
+    return;
+  }
+  if (b.dataset.deskRoom) {
+    changeDesk(b.dataset.deskRoom);
+    return;
+  }
+  if (
+    b.hasAttribute("data-desk-observe") ||
+    b.hasAttribute("data-desk-return")
+  ) {
+    observingAsModerator = b.hasAttribute("data-desk-observe");
+    room = v.me.room;
+    tab = "Assemblée";
+    render();
+    window.scrollTo(0, 0);
+    return;
+  }
   if (b.dataset.follow) {
     room = b.dataset.follow;
     tab = "Assemblée";

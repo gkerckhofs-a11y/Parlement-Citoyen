@@ -8,8 +8,8 @@ Avec Node.js 22, lancer `npm start` puis ouvrir http://localhost:8080. La clé d
 
 1. Choisir **Organiser une session → Préparer une journée**, saisir la clé et l’effectif. Sans fichier JSON, le scénario de répétition s’ouvre. Pour le pilote, importer le fichier privé Urgence Citoyenne fourni à la régie.
 2. En régie, déplier **Accès et présences**. Distribuer chaque accès individuellement. Le CSV contient aussi les accès adultes. Utiliser **Ouvrir cet accès** pour essayer plusieurs rôles dans des onglets séparés.
-3. En préparation, vérifier les affectations. **Ouvrir le Parlement** débloque la négociation. Dans **Assemblée**, choisir une commission puis ses **Commandes de salle**.
-4. Si un amendement est déposé, obtenir des soutiens de deux territoires, instruire la proposition et associer le profil en régie. Clore puis annoncer le vote. La sélection fige les textes et verrouille l’influence de la salle.
+3. En préparation, vérifier les affectations. **Ouvrir le Parlement** débloque la négociation. Dans **Régie → Régies des commissions**, choisir la salle à piloter. Chaque animateur dispose aussi d’un accès personnel qui ouvre directement le pupitre de sa salle. **Ouvrir l’écran de projection** lance le lecteur public dans un autre onglet. Le déplacer sur le projecteur, puis y choisir **Plein écran**.
+4. Si un amendement est déposé, obtenir des soutiens de deux territoires, instruire la proposition et associer le profil en régie. Depuis le pupitre, préparer un texte, projeter la proposition ou son amendement, puis ouvrir le débat. Les boutons **Précédente** et **Suivante** commandent les pages de la salle, y compris les passages d’un texte long. Ouvrir, clore, puis annoncer le vote depuis la même régie. La sélection fige les textes et verrouille l’influence de la salle.
 5. Annoncer les deux finalistes de chaque commission, passer en plénière, jouer les duels et ouvrir le débriefing. Le journal du futur se pilote séquence par séquence en version texte. La régie peut également projeter les indicateurs, télécharger un CSV ou imprimer le bilan en PDF.
 
 ## Scénarios

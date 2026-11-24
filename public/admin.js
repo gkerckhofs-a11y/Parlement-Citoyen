@@ -36,9 +36,12 @@ async function api(op, body = {}) {
 }
 async function enter(code) {
   const state = await api("view", { code, id: "REG" });
-  const { openGoogleDesk } = await import("./app.js?v=slides4");
+  const { openGoogleDesk } = await import("./app.js?v=commission1");
+  const url = new URL(location.href);
+  if (url.searchParams.get("session") !== code) url.searchParams.delete("commission");
+  url.searchParams.set("session", code);
+  history.replaceState(null, "", url);
   openGoogleDesk(code, state);
-  history.replaceState(null, "", "/admin?session=" + encodeURIComponent(code));
   notice.textContent = "";
 }
 const scenarios = {

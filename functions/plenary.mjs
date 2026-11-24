@@ -1,4 +1,12 @@
 import { dimensions } from "./scenario.mjs";
+export function publishedAmendment(amendment) {
+  return [
+    "admissible",
+    "adopté",
+    "rejeté",
+    "écarté au tour préliminaire",
+  ].includes(amendment.status);
+}
 // Split long contributions at word boundaries so a projector never needs scrolling.
 function passages(text, limit = 300) {
   const chunks = [];
@@ -21,23 +29,26 @@ function passages(text, limit = 300) {
 export function plenarySlides(s, scope = "") {
   const slides = [];
   function add(id, kind, room, title, text, extra = {}) {
-    const parts = passages(text);
+    // Keep long custom titles legible without hiding the remainder of the text.
+    const longTitle = title.length > 80;
+    const parts = passages(
+      longTitle && extra.image
+        ? [title, text].filter(Boolean).join(" — ")
+        : text,
+    );
+    const heading = longTitle ? title.slice(0, 74).trimEnd() + "…" : title;
     parts.forEach((body, i) =>
       slides.push({
         id: id + (i ? "~" + i : ""),
         kind,
         room,
-        title,
+        title: heading,
         body,
         ...(parts.length > 1 ? { part: i + 1 + " / " + parts.length } : {}),
         ...extra,
       }),
     );
   }
-  const lookup = (id) =>
-    s.pack.measures.find((m) => m.id === id)?.title ||
-    s.amends.find((a) => a.id === id)?.text ||
-    id;
   function ballot(room, p, id) {
     const announced = p && ["annoncé", "égalité"].includes(p.status);
     const kind = announced ? "Résultat du vote" : "Vote";
@@ -51,7 +62,7 @@ export function plenarySlides(s, scope = "") {
     const lines = p?.options || s.rooms[room].finalists;
     const caption = {
       ouvert: "Le scrutin est ouvert. Votez sur votre appareil.",
-      clos: "Le vote est clos. Le résultat sera annoncé par la présidence.",
+      clos: "Le vote est clos. Le résultat sera annoncé en séance.",
       suspendu: "Le vote est suspendu.",
       incident: "Le scrutin est interrompu.",
       égalité: "Les voix sont partagées. Un départage est nécessaire.",
@@ -60,17 +71,27 @@ export function plenarySlides(s, scope = "") {
     }[status];
     // One result per option for large ballots. The two plenary finalists share a slide.
     const options = lines.flatMap((option) => {
+      const measure = s.pack.measures.find((m) => m.id === option);
+      const amendment = s.amends.find((a) => a.id === option);
+      const official =
+        measure && (!p || ["selection", "plenary"].includes(p.kind))
+          ? s.amends.find((a) => a.id === s.rooms[room].official[measure.id])
+          : null;
       const row = announced && p.result?.rows.find((r) => r.id === option);
       const score = row
         ? (row.weight / p.result.denominator).toLocaleString("fr-BE", {
             maximumFractionDigits: 3,
           })
         : "";
-      return passages(lookup(option), 200).map((title) => ({
-        title,
-        score,
-        selected: !!p?.winners?.includes(option),
-      }));
+      return passages(measure?.title || amendment?.text || option, 200).map(
+        (title) => ({
+          measure: measure?.id || amendment?.measure,
+          version: amendment?.profile || official?.profile || measure?.id,
+          title,
+          score,
+          selected: !!p?.winners?.includes(option),
+        }),
+      );
     });
     let groups = [],
       group = [];
@@ -91,6 +112,7 @@ export function plenarySlides(s, scope = "") {
         poll: p?.id || null,
         status,
         rows,
+        ...(p?.base ? { measure: p.base } : {}),
         ...(announced
           ? { turnout: p.result.voters, abstain: p.result.abstain }
           : {}),
@@ -121,27 +143,42 @@ export function plenarySlides(s, scope = "") {
     for (const m of measures) {
       add("measure-" + m.id, "Proposition", room, m.title, m.text, {
         image: m.id,
+        measure: m.id,
       });
       const adopted = s.amends.find((a) => a.id === r.official[m.id]);
       const profile = m.variants.find((t) => t.id === adopted?.profile) || m;
+      const timer = r.focus === m.id && r.until ? { until: r.until } : {};
       for (const a of s.amends.filter(
-        (a) =>
-          a.measure === m.id &&
-          [
-            "admissible",
-            "adopté",
-            "rejeté",
-            "écarté au tour préliminaire",
-          ].includes(a.status),
+        (a) => a.measure === m.id && publishedAmendment(a),
       )) {
-        add("amend-" + a.id, "Amendement · " + a.status, room, m.title, a.text);
+        const subject = { measure: m.id, amendment: a.id, version: a.profile };
+        add(
+          "amend-" + a.id,
+          "Amendement · " + a.status,
+          room,
+          m.title,
+          a.text,
+          subject,
+        );
+        if (scope)
+          add("discuss-" + a.id, "Débat", room, m.title, a.text, {
+            ...subject,
+            ...timer,
+          });
       }
       add("effects-" + m.id, "Effets envisagés", room, m.title, "", {
+        measure: m.id,
         rows: dimensions.map((title, i) => ({
           title,
           score: profile.trends[i],
         })),
       });
+      if (scope)
+        add("debate-" + m.id, "Débat", room, m.title, adopted?.text || m.text, {
+          measure: m.id,
+          version: profile.id,
+          ...timer,
+        });
       if (
         scope &&
         s.phase === "Commissions" &&
@@ -187,7 +224,10 @@ export function plenarySlides(s, scope = "") {
       );
     else
       for (const p of s.polls.filter(
-        (p) => p.room === room && p.status !== "invalidé",
+        (p) =>
+          p.room === room &&
+          p.status !== "invalidé" &&
+          (!scope || p.kind !== "plenary"),
       ))
         ballot(room, p, "poll-" + p.id);
   }

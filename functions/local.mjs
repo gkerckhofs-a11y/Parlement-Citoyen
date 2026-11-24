@@ -53,6 +53,10 @@ const publicFiles = {
   "/report.js": ["report.js", "text/javascript"],
   "/": ["index.html", "text/html"],
   "/app.js": ["app.js", "text/javascript"],
+  "/commission-desk.js": ["commission-desk.js", "text/javascript"],
+  "/commission-desk.css": ["commission-desk.css", "text/css"],
+  "/commission-screen.js": ["commission-screen.js", "text/javascript"],
+  "/commission-screen.css": ["commission-screen.css", "text/css"],
   "/editor.js": ["editor.js", "text/javascript"],
   "/app.css": ["app.css", "text/css"],
 };

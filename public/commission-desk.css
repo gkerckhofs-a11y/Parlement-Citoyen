@@ -1,0 +1,208 @@
+.commission-desk {
+  margin: 0 auto;
+  max-width: 1280px;
+}
+.desk-topline,
+.desk-title,
+.desk-title > div,
+.desk-live-heading,
+.desk-pager,
+.desk-preview li,
+.desk-home-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+.desk-topline,
+.desk-title,
+.desk-live-heading,
+.desk-preview li {
+  justify-content: space-between;
+}
+.desk-topline {
+  color: var(--mute);
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.5rem;
+}
+.desk-back {
+  color: var(--ink);
+  border: 0;
+  background: none;
+  padding: 0.45rem 0;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.desk-back:hover {
+  color: var(--ink);
+  background: transparent;
+}
+.desk-title {
+  flex-wrap: wrap;
+  margin: 1.4rem 0;
+}
+.desk-title h1 {
+  font-size: clamp(2rem, 4vw, 3.3rem);
+  margin: 0;
+}
+.desk-title .room-mark {
+  width: 3.1rem;
+  height: 3.1rem;
+}
+.desk-title .room-mark svg {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+.desk-title > div > div > span,
+.desk-kind {
+  color: var(--mute);
+  font-weight: 600;
+}
+.desk-title .desk-link {
+  background: var(--ink);
+  color: white;
+}
+.desk-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: clamp(1rem, 3vw, 2.4rem);
+  align-items: start;
+}
+.desk-columns > div {
+  min-width: 0;
+}
+.desk-columns h2,
+.desk-finals h2 {
+  font-size: 1.58rem;
+  margin: 0 0 0.7rem;
+}
+.desk-controls h3 {
+  font-size: 1.25rem;
+  margin: 1.4rem 0 0.45rem;
+}
+.desk-live,
+.desk-controls,
+.desk-ballot {
+  padding: clamp(0.9rem, 1.7vw, 1.4rem);
+  margin: 0 0 1rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: #fffefa;
+}
+.desk-live-heading {
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.desk-live-heading h2 {
+  margin: 0;
+}
+.desk-live-heading > span {
+  font-size: 0.9rem;
+  color: var(--mute);
+}
+.desk-preview {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-top: 4px solid var(--ink);
+  overflow-wrap: anywhere;
+}
+.desk-preview .measure-banner {
+  width: 100%;
+  height: clamp(90px, 9vw, 150px);
+  object-fit: cover;
+  display: block;
+  border-radius: 0;
+  margin: 0;
+}
+.desk-preview-copy {
+  padding: clamp(1rem, 2.4vw, 1.75rem);
+}
+.desk-preview h3 {
+  font-size: clamp(1.6rem, 2.8vw, 2.4rem);
+  margin: 0.45rem 0;
+}
+.desk-preview ul,
+.desk-amendments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.desk-preview li,
+.desk-amendments li {
+  border-top: 1px solid var(--rule);
+  padding: 0.5rem 0;
+}
+.desk-amendments li p {
+  margin-top: 0;
+}
+.desk-pager {
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+.desk-pager span {
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+}
+.desk-controls form {
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--rule);
+}
+.desk-controls small {
+  font-weight: 400;
+}
+.desk-ballot {
+  border-left: 4px solid var(--ink);
+}
+.desk-footer,
+.desk-finals {
+  padding-block: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid var(--rule);
+}
+.desk-directory {
+  margin-bottom: 2rem;
+}
+.desk-directory .room-board {
+  margin: 0.75rem 0;
+}
+.desk-directory .room-tile {
+  align-content: start;
+}
+.desk-home-heading .room-mark {
+  font-size: 1.1rem;
+}
+@media (max-width: 800px) {
+  .desk-columns {
+    grid-template-columns: 1fr;
+  }
+  .desk-title {
+    gap: 0.75rem;
+  }
+}
+
+.desk-room-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border: 1px solid var(--rule);
+  background: #fffefa;
+  border-radius: 6px;
+}
+.desk-room-card button.room-tile {
+  flex: 1;
+  border: 0;
+}
+.desk-directory .desk-room-card > .desk-link {
+  display: block;
+  text-align: left;
+  min-height: 44px;
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--rule);
+  margin: 0;
+  color: var(--ink);
+  background: transparent;
+  font-size: 0.9rem;
+}
+.desk-amendments button {
+  margin: 0 0.4rem 0.4rem 0;
+}

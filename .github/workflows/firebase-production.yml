@@ -30,10 +30,10 @@ jobs:
           token=$(gcloud auth print-access-token)
           check_permissions() {
             local url="$1" required="$2" response
-            response=$(curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' --data "$(jq -nc --argjson p "$required" '{permissions:$p}')" "$url")
+            response=$(curl --fail-with-body -sS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' --data "$(jq -nc --argjson p "$required" '{permissions:$p}')" "$url")
             jq -e --argjson required "$required" '($required - (.permissions // [])) == []' <<< "$response"
           }
-          check_permissions "https://cloudresourcemanager.googleapis.com/v1/projects/$project:testIamPermissions" '["firebasehosting.versions.create","firebasehosting.releases.create","cloudfunctions.functions.update","firebaserules.rulesets.create","firebaserules.releases.update","serviceusage.services.use"]'
+          check_permissions "https://cloudresourcemanager.googleapis.com/v1/projects/$project:testIamPermissions" '["firebasehosting.sites.update","cloudfunctions.functions.update","firebaserules.rulesets.create","firebaserules.releases.update","serviceusage.services.use"]'
           runtime=$(gcloud functions describe parliament --gen2 --region=europe-west1 --project="$project" --format='value(serviceConfig.serviceAccountEmail)')
           check_permissions "https://iam.googleapis.com/v1/projects/$project/serviceAccounts/$runtime:testIamPermissions" '["iam.serviceAccounts.actAs"]'
   deploy:

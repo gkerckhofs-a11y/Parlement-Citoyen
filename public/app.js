@@ -69,7 +69,7 @@ const table = (heads, rows) =>
   "</tbody></table></div>";
 let auth = JSON.parse(sessionStorage.getItem("pc.auth") || "null"),
   v = null,
-  tab = "Assemblée",
+  tab = auth?.google ? "Régie" : "Assemblée",
   room = "",
   reading = "",
   editing = "",
@@ -90,7 +90,15 @@ function say(t) {
 async function call(op, body) {
   let r = await fetch("/api/" + op, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(body.google
+        ? {
+            Authorization:
+              "Bearer " + (await (await import("./google.js")).bearer()),
+          }
+        : {}),
+    },
     body: JSON.stringify(body),
   });
   let j = await r.json();
@@ -112,20 +120,21 @@ function login() {
     ) +
     section(
       "Organiser une session",
-      details(
-        "Préparer une journée",
-        form(
-          { ui: "create" },
-          field("Clé organisateur", "adminKey", "", "password") +
-            field("Nombre d’élèves", "count", 100, "number") +
-            '<label>Scénario privé (JSON)<input name="pack" type="file" accept=".json"></label><small>Sans fichier, la session utilise le scénario de répétition.</small><label><input name="review" type="checkbox">Relire les articles avant publication</label>' +
-            details(
-              "Affectations et influence",
-              '<label>Citoyens, lobbyistes, journalistes (ex. 36,8,6)<input name="counts"></label><label>Points par lobby<input type="number" min="0" max="20" name="reserve"></label><label>Effectif minimal de restitution<input type="number" name="minGroup" min="3" max="30" value="5"></label>',
-            ),
-          "Créer la session",
+      '<p><a href="/admin">Administration · Connexion Google</a></p>' +
+        details(
+          "Préparer une journée",
+          form(
+            { ui: "create" },
+            field("Clé organisateur", "adminKey", "", "password") +
+              field("Nombre d’élèves", "count", 100, "number") +
+              '<label>Scénario privé (JSON)<input name="pack" type="file" accept=".json"></label><small>Sans fichier, la session utilise le scénario de répétition.</small><label><input name="review" type="checkbox">Relire les articles avant publication</label>' +
+              details(
+                "Affectations et influence",
+                '<label>Citoyens, lobbyistes, journalistes (ex. 36,8,6)<input name="counts"></label><label>Points par lobby<input type="number" min="0" max="20" name="reserve"></label><label>Effectif minimal de restitution<input type="number" name="minGroup" min="3" max="30" value="5"></label>',
+              ),
+            "Créer la session",
+          ),
         ),
-      ),
     ) +
     "</div>";
   sessionLabel.textContent = "";
@@ -1274,10 +1283,15 @@ async function run(x) {
       return;
     }
     if (x.ui === "exit") {
+      const wasGoogle = auth?.google;
       auth = null;
       v = null;
       sessionStorage.removeItem("pc.auth");
       tab = "Assemblée";
+      if (wasGoogle) {
+        location.assign("/admin");
+        return;
+      }
       login();
       return;
     }

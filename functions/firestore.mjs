@@ -58,7 +58,11 @@ export function firestoreStore(db) {
           }
           if (outcomes.some((o) => !o.error)) {
             const parts = splitState(s);
-            tx.update(doc, { count: parts.length });
+            tx.update(doc, {
+              count: parts.length,
+              phase: s.phase,
+              title: s.pack.title,
+            });
             parts.forEach((payload, i) => tx.set(piece(doc, i), { payload }));
             for (let i = parts.length; i < count; i++) tx.delete(piece(doc, i));
           }
@@ -76,11 +80,28 @@ export function firestoreStore(db) {
     }
   }
   return {
+    async list() {
+      const docs = await db
+        .collection("parlements")
+        .select("title", "phase")
+        .get();
+      return docs.docs
+        .map((d) => ({
+          code: d.id,
+          title: d.get("title") || "Session " + d.id,
+          phase: d.get("phase") || "",
+        }))
+        .sort((a, b) => a.code.localeCompare(b.code));
+    },
     async create(s) {
       const doc = ref(s.code),
         batch = db.batch(),
         parts = splitState(s);
-      batch.create(doc, { count: parts.length });
+      batch.create(doc, {
+        count: parts.length,
+        phase: s.phase,
+        title: s.pack.title,
+      });
       batch.create(scenario(doc), { payload: encode(s.pack) });
       parts.forEach((payload, i) => batch.create(piece(doc, i), { payload }));
       await batch.commit();

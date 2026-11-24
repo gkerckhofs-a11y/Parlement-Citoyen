@@ -37,7 +37,7 @@ jobs:
           runtime=$(gcloud functions describe parliament --gen2 --region=europe-west1 --project="$project" --format='value(serviceConfig.serviceAccountEmail)')
           check_permissions "https://iam.googleapis.com/v1/projects/$project/serviceAccounts/$runtime:testIamPermissions" '["iam.serviceAccounts.actAs"]'
   deploy:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/publication-')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/publication-') || (github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, '[publier]'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

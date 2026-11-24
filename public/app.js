@@ -1226,16 +1226,16 @@ function deskDirectory() {
 main.addEventListener("change", (e) => {
   if (e.target.matches("[data-plenary-room]") && plenaryRequested()) {
     preparedDuel = e.target.value;
-    render();
-    main.querySelector("[data-plenary-room]")?.focus();
+    renderPreservingDetails();
+    main.querySelector("[data-plenary-room]")?.focus({ preventScroll: true });
     return;
   }
   if (e.target.matches("[data-desk-measure]")) {
     const scope = openDeskScope();
     if (!scope) return;
     preparedMeasures.set(v.code + "/" + scope, e.target.value);
-    render();
-    main.querySelector("[data-desk-measure]")?.focus();
+    renderPreservingDetails();
+    main.querySelector("[data-desk-measure]")?.focus({ preventScroll: true });
   }
   if (e.target.matches("[data-stage-slide]"))
     run({
@@ -1854,6 +1854,14 @@ function render() {
     }[tab]();
   loadPhotos();
 }
+function renderPreservingDetails() {
+  let expanded = [...main.querySelectorAll("details[open] > summary")].map(
+    (e) => e.textContent,
+  );
+  render();
+  for (let sum of main.querySelectorAll("summary"))
+    if (expanded.includes(sum.textContent)) sum.parentNode.open = true;
+}
 function editingCurrentForm(next) {
   return [...main.querySelectorAll("form:focus-within, form[data-dirty]")].some(
     (f) => {
@@ -1900,14 +1908,9 @@ async function refresh(force = false) {
       json === last)
   )
     return;
-  let expanded = [...main.querySelectorAll("details[open] > summary")].map(
-    (e) => e.textContent,
-  );
   last = json;
   v = next;
-  render();
-  for (let sum of main.querySelectorAll("summary"))
-    if (expanded.includes(sum.textContent)) sum.parentNode.open = true;
+  renderPreservingDetails();
 }
 function download(file, body, type) {
   let url = URL.createObjectURL(new Blob([body], { type })),

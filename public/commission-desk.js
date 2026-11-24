@@ -1,19 +1,11 @@
-export function deskPreview(deck, roomName, measures, go, { h, para, banner }) {
-  const { current, menu, position, total } = deck;
+import { deskFlow, slidePicker } from "./desk-flow.js?v=vote3";
+
+export function deskPreview(deck, roomName, measures, { h, para, banner }) {
+  const { current } = deck;
   const shownKind =
     current.kind === "Débat" && current.amendment
       ? "Débat sur l’amendement"
       : current.kind;
-  const stageMoves = () =>
-    '<div class="desk-pager">' +
-    go("Précédente", menu[position - 2]?.id) +
-    "<span>" +
-    position +
-    " / " +
-    total +
-    "</span>" +
-    go("Suivante", menu[position]?.id, false) +
-    "</div>";
   const image = current.image && measures.find((m) => m.id === current.image);
   return (
     '<section class="desk-live" aria-labelledby="desk-live-title">' +
@@ -49,7 +41,6 @@ export function deskPreview(deck, roomName, measures, go, { h, para, banner }) {
       ? para(current.turnout + " votants · " + current.abstain + " abstentions")
       : "") +
     "</div></div>" +
-    stageMoves() +
     "</section>"
   );
 }
@@ -64,7 +55,6 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
     details,
     roomMark,
     deskLink,
-    pollLabel,
     name,
     banner,
     proposals,
@@ -99,54 +89,6 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
       ? btn(label, slideAction(id), secondary)
       : '<button type="button" disabled>' + h(label) + "</button>";
   }
-  function ballotControls() {
-    if (!active) return "";
-    const action = {
-      ouvert: ["close", "Clore le vote"],
-      clos: ["announce", "Annoncer le résultat"],
-      suspendu: ["resume", "Reprendre le scrutin"],
-      incident: ["restart", "Relancer le scrutin"],
-      égalité: active.round
-        ? ["draw", "Effectuer le tirage au sort"]
-        : ["tie", "Ouvrir le départage"],
-    }[active.status];
-    const pollTitle = active.base
-      ? name(active.base)
-      : "Sélection des finalistes";
-    return (
-      '<section class="desk-ballot"><h2>' +
-      h(pollLabel(active)) +
-      "</h2><p>" +
-      h(pollTitle) +
-      "</p>" +
-      (active.received === undefined
-        ? ""
-        : "<p>" +
-          active.received +
-          " / " +
-          active.expected +
-          " bulletins reçus</p>") +
-      '<div class="actions">' +
-      (action
-        ? btn(action[1], {
-            type: action[0],
-            poll: active.id,
-            reasonRequired: ["draw", "restart", "resume"].includes(action[0]),
-          })
-        : "") +
-      (current.poll === active.id
-        ? ""
-        : go("Afficher le scrutin", "poll-" + active.id)) +
-      (active.status === "ouvert"
-        ? btn(
-            "Suspendre",
-            { type: "suspend", poll: active.id, reasonRequired: true },
-            true,
-          )
-        : "") +
-      "</div></section>"
-    );
-  }
   function measureControls() {
     if (!measure) return "";
     const items = amendments.filter((a) => a.measure === measure.id);
@@ -164,7 +106,7 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
       : "debate-" + measure.id;
     const canDebate = menu.some((s) => s.id === debateId);
     let content =
-      '<section class="desk-controls"><h2>Conduire la discussion</h2><label>Proposition à préparer' +
+      '<section class="desk-controls"><h2>Propositions et amendements</h2><label>Proposition à préparer' +
       "<select data-desk-measure>" +
       measures
         .map(
@@ -185,9 +127,9 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
     if (live && canDebate) {
       content += form(
         slideAction(debateId),
-        "<label>Durée du débat en minutes <small>(facultatif)</small>" +
-          '<input type="number" min="1" max="180" step="1" name="minutes" placeholder="Sans minuteur"></label>',
-        "Ouvrir le débat",
+        "<label>Durée du débat en minutes" +
+          '<input type="number" min="1" max="180" step="1" name="minutes" required></label>',
+        "Lancer le minuteur du débat",
       );
     }
     content += "<h3>Amendements</h3>";
@@ -201,9 +143,6 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
               h(a.text) +
               "</p>" +
               go("Projeter cet amendement", "amend-" + a.id) +
-              (live
-                ? go("Débattre de cet amendement", "discuss-" + a.id)
-                : "") +
               "</li>",
           )
           .join("") +
@@ -258,31 +197,6 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
       "</section>"
     );
   }
-  const jump =
-    '<label>Page à projeter<select data-stage-slide data-scope="' +
-    h(scope) +
-    '">' +
-    menu
-      .map(
-        (s, i) =>
-          '<option value="' +
-          h(s.id) +
-          '"' +
-          (s.id === current.id ? " selected" : "") +
-          ">" +
-          h(
-            i +
-              1 +
-              ". " +
-              s.kind +
-              " · " +
-              s.title +
-              (s.part ? " · " + s.part : ""),
-          ) +
-          "</option>",
-      )
-      .join("") +
-    "</select></label>";
   return (
     '<div class="commission-desk"><div class="desk-topline">' +
     (isChair
@@ -300,11 +214,11 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
       : "") +
     "</div>" +
     '<div class="desk-columns"><div>' +
-    deskPreview(deck, roomName, v.measures, go, ui) +
-    details("Ordre de projection", jump) +
+    deskPreview(deck, roomName, v.measures, ui) +
     "</div><div>" +
-    ballotControls() +
-    measureControls() +
+    deskFlow(v, deck, active, go, ui) +
+    details("Choisir un texte ou un vote", measureControls() + finals()) +
+    details("Accès à toutes les pages", slidePicker(deck, scope, ui)) +
     "</div></div>" +
     (amendments.length
       ? '<div id="desk-amendments">' +
@@ -316,7 +230,6 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
         ) +
         "</div>"
       : "") +
-    finals() +
     (roomPolls.length
       ? details(
           "Scrutins de la commission et secours papier",

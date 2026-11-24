@@ -5,7 +5,7 @@ import {
   createHmac,
   timingSafeEqual,
 } from "node:crypto";
-import { plenarySlides, currentSlide, publishedAmendment } from "./plenary.mjs";
+import { plenarySlides, currentSlide, publishedAmendment, hasPendingAmendments, presentationRoute } from "./plenary.mjs";
 import { check, validate, dimensions } from "./scenario.mjs";
 const now = () => new Date().toISOString();
 const str = (v, max = 2400) => {
@@ -311,9 +311,11 @@ export function act(s, a, x) {
     );
     const until = setTimer ? deadline(x.minutes) : undefined;
     if (x.room) {
+      if (selected.kind === "Vote" && selected.poll) r.explicitBallotPage = selected.id;
       showRoomSlide(r, selected.id, selected.measure);
       if (setTimer) r.until = until;
     } else {
+      if (selected.kind === "Vote" && selected.poll) s.explicitPlenaryBallotPage = selected.id;
       if (s.plenaryTimer?.measure !== selected.measure) delete s.plenaryTimer;
       if (setTimer)
         s.plenaryTimer = { measure: selected.measure, until };
@@ -567,13 +569,7 @@ export function act(s, a, x) {
       check(live && !r.finalists.length);
       if (x.kind === "selection") {
         check(
-          !s.amends.some(
-            (v) =>
-              v.room === x.room &&
-              ["admissible", "en examen", "à reformuler", "déposé"].includes(
-                v.status,
-              ),
-          ),
+          !hasPendingAmendments(s, x.room),
           "Traitez les amendements en attente",
         );
         r.locked = true;
@@ -755,8 +751,10 @@ export function act(s, a, x) {
       finish(s, p, w);
     }
     if (["announce", "close", "draw"].includes(type)) {
-      if (p.kind === "plenary") s.plenarySlide = "duel-" + p.room;
-      else showRoomSlide(s.rooms[p.room], "poll-" + p.id, p.base);
+      const votePage = p.kind === "plenary" ? "duel-" + p.room : "poll-" + p.id;
+      const page = type === "close" ? votePage : "result-" + p.id;
+      if (p.kind === "plenary") s.plenarySlide = page;
+      else showRoomSlide(s.rooms[p.room], page, p.base);
     }
     note(s, a, type + " " + p.id, reason);
     return;
@@ -1174,9 +1172,10 @@ export function view(s, a) {
         position: slides.indexOf(selected) + 1,
         total: slides.length,
       };
-      if (!projection)
+      if (!projection) {
+        stage.route = presentationRoute(s, slides, scope);
         stage.menu = slides.map(
-          ({ id, kind, room, title, part, measure, amendment, version, poll, status, openKind, journalIndex }) => ({
+          ({ id, kind, room, title, part, measure, amendment, version, poll, status, ballotKind, seats, round, openKind, journalIndex }) => ({
             id,
             kind,
             room,
@@ -1187,10 +1186,12 @@ export function view(s, a) {
             ...(version ? { version } : {}),
             ...(poll ? { poll } : {}),
             ...(status ? { status } : {}),
+            ...(ballotKind ? { ballotKind, seats, round } : {}),
             ...(openKind ? { openKind } : {}),
             ...(journalIndex != null ? { journalIndex } : {}),
           }),
         );
+      }
       result.presentations[scope || "plenary"] = stage;
     }
   }

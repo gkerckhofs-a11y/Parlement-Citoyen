@@ -220,3 +220,27 @@
 .plenary-finalist .actions {
   margin: 0.55rem 0;
 }
+.desk-flow {
+  padding: clamp(1rem, 2vw, 1.6rem);
+  background: #f4f7f2;
+  border: 1px solid var(--rule);
+  border-top: 4px solid var(--ink);
+  border-radius: 6px;
+}
+.desk-flow p {
+  margin: 0.4rem 0 0.8rem;
+}
+.desk-main-action button {
+  width: 100%;
+  min-height: 48px;
+  text-wrap: balance;
+}
+.desk-secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+}
+.desk-columns > div > details {
+  margin-top: 0.8rem;
+}

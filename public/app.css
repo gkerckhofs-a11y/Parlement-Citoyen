@@ -896,3 +896,14 @@ body:has(.projector.stage) > header {
     height: auto;
   }
 }
+
+.current-ballot {
+  margin: 1rem 0;
+  padding: clamp(.75rem, 2vw, 1.25rem);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--ink);
+  border-radius: 6px;
+}
+.current-ballot > h2 { font-size: 1.15rem; margin: 0 0 .4rem; }
+.current-ballot > article { margin: 0; }

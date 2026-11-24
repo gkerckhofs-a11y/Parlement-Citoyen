@@ -458,3 +458,11 @@ body.projecting-parliament > #feedback:empty {
     height: clamp(25px, 7vh, 50px);
   }
 }
+.scene-option em.other {
+  color: #deded4;
+  border-color: #8b9b98;
+}
+.scene-projector .scene-rows .scene-row.stage-winner {
+  padding-left: 0.4em;
+  border-left: 0.13em solid #a6d5aa;
+}

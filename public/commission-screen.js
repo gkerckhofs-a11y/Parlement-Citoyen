@@ -45,18 +45,222 @@ function generalScreen(view) {
   };
 }
 
-function detailText(slide) {
-  if (isAnnounced(slide) && slide.turnout != null) {
-    const voters = Number(slide.turnout),
-      abstain = Number(slide.abstain || 0);
-    return (
-      number(voters) +
-      (voters > 1 ? " votants" : " votant") +
-      " · " +
-      number(abstain) +
-      (abstain > 1 ? " abstentions" : " abstention")
-    );
+const ballotTypes = {
+  amend: {
+    label: "Vote sur le texte",
+    question: "Quel texte la commission retient-elle ?",
+    open: "Choisissez le texte initial ou un amendement sur votre appareil, ou abstenez-vous.",
+  },
+  prelim: {
+    label: "Tour préliminaire",
+    question: "Quels amendements soumettre au vote ?",
+  },
+  selection: {
+    label: "Sélection en commission",
+    question: "Quelles propositions envoyer en plénière ?",
+  },
+  plenary: {
+    label: "Vote en plénière",
+    question: "Quelle mesure le Parlement adopte-t-il ?",
+    open: "Choisissez une des deux finalistes sur votre appareil, ou abstenez-vous.",
+  },
+};
+
+function countLabel(value, singular, plural = singular + "s") {
+  return number(value) + " " + (Number(value) > 1 ? plural : singular);
+}
+
+function describeBallot(slide, poll) {
+  if (
+    !slide.ballot &&
+    !slide.ballotKind &&
+    slide.kind !== "Vote" &&
+    slide.kind !== "Résultat du vote"
+  )
+    return null;
+  const kind =
+    poll?.kind ||
+    slide.ballotKind ||
+    slide.openKind ||
+    (slide.id?.startsWith("select-")
+      ? "selection"
+      : slide.id?.startsWith("call-")
+        ? "amend"
+        : slide.id?.startsWith("duel-")
+          ? "plenary"
+          : "");
+  const type = ballotTypes[kind];
+  const status = slide.status || "à ouvrir";
+  const announced =
+    slide.kind === "Résultat du vote" &&
+    isAnnounced(slide) &&
+    (!poll?.status || isAnnounced(poll));
+  const data = announced ? poll?.result : null;
+  const rows = slide.rows || [];
+  const selected = announced ? rows.filter((row) => row.selected) : [];
+  const winners = announced ? poll?.winners || [] : [];
+  const keptOriginal =
+    kind === "amend" &&
+    (winners.length
+      ? winners[0] === poll.base
+      : selected.some(
+          (row) =>
+            (row.option && row.option === poll?.base) ||
+            (row.measure && row.version === row.measure),
+        ));
+  // A previous round can be archived as announced while its tie-break remains a separate ballot.
+  const tied =
+    announced &&
+    (status === "égalité" ||
+      (!winners.length &&
+        !selected.length &&
+        data?.tied?.length > 0 &&
+        kind !== "amend"));
+  const weighted =
+    kind === "selection" &&
+    !(slide.round || poll?.round) &&
+    !poll?.paper &&
+    (data?.rows || []).some((row) => row.bonus > 0);
+  const unit =
+    kind === "selection"
+      ? weighted
+        ? "Soutiens pondérés"
+        : "Soutiens"
+      : kind === "prelim"
+        ? "Soutiens"
+        : "Voix";
+  const seats =
+    slide.seats ??
+    poll?.seats ??
+    (kind === "selection" || kind === "prelim" ? 2 : 1);
+  let title = type?.question || slide.title,
+    instruction = "";
+  let state =
+    {
+      ouvert: "Vote ouvert",
+      clos: "Vote clos",
+      dépouillement: "Vote clos",
+      incident: "Scrutin interrompu",
+      suspendu: "Vote suspendu",
+      "à ouvrir": "Avant le vote",
+    }[status] || "Vote";
+  if (announced) {
+    state = "Résultat";
+    if (tied) {
+      title = "Égalité à départager";
+      instruction =
+        slide.round || poll?.round
+          ? "La présidence de séance doit départager les options à égalité."
+          : "Un nouveau scrutin départage les options à égalité.";
+    } else if (kind === "amend") {
+      title = keptOriginal ? "Texte initial maintenu" : "Amendement adopté";
+      if (keptOriginal)
+        instruction =
+          data?.expressed === 0
+            ? "Aucun suffrage exprimé."
+            : "Aucun amendement n’a obtenu plus de la moitié des suffrages exprimés.";
+      else
+        instruction =
+          "La version amendée sera défendue lors de la sélection en commission.";
+    } else if (kind === "selection") {
+      title = "Les finalistes de la commission";
+      instruction = winners.length
+        ? winners.join(" et ") +
+          (winners.length === 1
+            ? " passe en plénière."
+            : " passent en plénière.")
+        : "Les propositions retenues passent en plénière.";
+    } else if (kind === "prelim") {
+      title = "Les amendements retenus";
+      instruction =
+        "La commission peut maintenant les comparer au texte initial.";
+    } else if (kind === "plenary") {
+      const winningCode = winners[0] || selected[0]?.measure;
+      title = winningCode
+        ? "La mesure " + winningCode + " est adoptée"
+        : "Mesure adoptée";
+      instruction = "Elle entre dans le plan voté par le Parlement.";
+    } else title = "Résultat du scrutin";
+    if (
+      !tied &&
+      kind !== "amend" &&
+      (slide.round || poll?.round) &&
+      data?.tied?.length &&
+      winners.length
+    )
+      instruction += " Le départage a eu lieu par tirage au sort.";
+  } else if (status === "ouvert") {
+    const choice = kind === "prelim" ? "amendement" : "proposition";
+    instruction = poll?.paper
+      ? "Remettez votre bulletin à la présidence de séance."
+      : type?.open ||
+        "Sur votre appareil, choisissez jusqu’à " +
+          countLabel(seats, choice) +
+          " ou abstenez-vous.";
+  } else if (status === "clos" || status === "dépouillement") {
+    instruction =
+      poll && isAnnounced(poll)
+        ? "Le résultat de ce scrutin a été annoncé en séance."
+        : "Le résultat sera affiché dès son annonce en séance.";
+  } else if (status === "suspendu" || status === "incident") {
+    instruction = "Attendez les consignes de la présidence de séance.";
+  } else {
+    instruction = "Attendez l’ouverture du scrutin pour voter.";
   }
+  const participation = [];
+  if (announced && slide.turnout != null) {
+    participation.push(countLabel(slide.turnout, "votant"));
+    const expressed =
+      data?.expressed ??
+      (slide.abstain != null ? slide.turnout - slide.abstain : null);
+    if (expressed != null)
+      participation.push(
+        countLabel(expressed, "suffrage exprimé", "suffrages exprimés"),
+      );
+    if (slide.abstain != null)
+      participation.push(countLabel(slide.abstain, "abstention"));
+  }
+  return {
+    kind,
+    announced,
+    state,
+    tied,
+    weighted,
+    unit,
+    title,
+    instruction,
+    label: type?.label || slide.title,
+    data,
+    participation: participation.join(" · "),
+  };
+}
+
+function outcomeFor(row, ballot, poll) {
+  if (!ballot?.announced) return "";
+  if (ballot.tied) {
+    if (ballot.data?.tied?.includes(row.option)) return "À départager";
+    if (ballot.data?.top?.includes(row.option)) return "Place acquise";
+    return "";
+  }
+  if (ballot.kind === "amend") {
+    const original = row.option
+      ? row.option === poll?.base
+      : row.version === row.measure;
+    return original
+      ? row.selected
+        ? "Maintenu"
+        : ""
+      : row.selected
+        ? "Adopté"
+        : "Rejeté";
+  }
+  if (ballot.kind === "prelim")
+    return row.selected ? "Soumis au vote" : "Écarté";
+  if (ballot.kind === "selection") return row.selected ? "Finaliste" : "";
+  return row.selected ? (ballot.kind === "plenary" ? "Adoptée" : "Retenu") : "";
+}
+
+function detailText(slide) {
   if (slide.kind === "Débat" && slide.until) {
     const end = new Date(slide.until);
     if (Number.isFinite(end.getTime()))
@@ -116,12 +320,17 @@ export function parliamentScreen(
   const summary = slide.id?.startsWith("balance");
   const compare = slide.id?.startsWith("compare-");
   const trends = slide.kind === "Effets envisagés";
-  const announced = isAnnounced(slide);
   const poll = view.polls?.find((p) => p.id === slide.poll);
-  const scoreUnit =
-    poll?.kind === "selection" ? "soutiens" : poll ? "voix" : "";
+  const ballot = describeBallot(slide, poll);
+  const announced = ballot?.announced;
   const code = slide.version || slide.measure || slide.image;
-  const identity = [kind, code, slide.part && "Page " + slide.part]
+  const identity = [
+    ballot?.label || kind,
+    code,
+    (slide.round || poll?.round) && "Départage",
+    ballot?.state,
+    slide.part && "Page " + slide.part,
+  ]
     .filter(Boolean)
     .join(" · ");
   const label = inRoom ? "Parlement citoyen" : roomTitle || "Parlement citoyen";
@@ -133,7 +342,8 @@ export function parliamentScreen(
   const profile =
     selectedProfile ||
     (slide.version === measure?.official?.id ? measure?.official : measure);
-  const showEffects = showPhoto && !journal && Array.isArray(profile?.trends);
+  const showEffects =
+    showPhoto && !journal && !ballot && Array.isArray(profile?.trends);
   if (showEffects)
     rows = profile.trends.map((score, i) => ({
       title: view.dimensions[i],
@@ -149,16 +359,41 @@ export function parliamentScreen(
         : summary
           ? "Mesures adoptées"
           : announced
-            ? "Résultats annoncés"
+            ? ballot.unit
             : compare
               ? "Propositions finalistes"
               : rows.length
-                ? "Options du scrutin"
+                ? "Choix proposés"
                 : "";
   const panelRows = rows
     .map((row, i) => {
-      const selected = announced && row.selected;
-      const rowCode = [row.version || row.measure, row.status]
+      const selected = announced && !ballot.tied && row.selected;
+      const outcome = outcomeFor(row, ballot, poll);
+      const plainScore = row.score != null ? String(row.score) : "";
+      const aggregate =
+        ballot?.weighted &&
+        ballot.data?.rows?.find((count) => count.id === row.option);
+      const approx =
+        aggregate &&
+        ballot.data.denominator > 0 &&
+        (aggregate.weight * 1000) % ballot.data.denominator !== 0
+          ? "≈ "
+          : "";
+      const choiceStatus =
+        ballot?.kind === "amend"
+          ? (
+              row.option
+                ? row.option === poll?.base
+                : row.version === row.measure
+            )
+            ? "Texte initial"
+            : "Amendement"
+          : ballot && !ballot.announced
+            ? ["Texte initial", "Texte amendé"].includes(row.status)
+              ? row.status
+              : ""
+            : row.status;
+      const rowCode = [row.version || row.measure, choiceStatus]
         .filter(Boolean)
         .join(" · ");
       const rowLabel = general
@@ -171,7 +406,7 @@ export function parliamentScreen(
         : national && Number.isFinite(row.score)
           ? signed(row.score)
           : announced && row.score != null
-            ? h(row.score)
+            ? approx + h(plainScore)
             : "";
       const mark =
         (impacts || national) && indicators[i] ? icon(indicators[i]) : "";
@@ -183,7 +418,13 @@ export function parliamentScreen(
         (rowLabel ? "<small>" + h(rowLabel) + "</small>" : "") +
         mark +
         h(row.title) +
-        (selected ? "<em>Retenu</em>" : "") +
+        (outcome
+          ? '<em class="' +
+            (selected ? "chosen" : "other") +
+            '">' +
+            h(outcome) +
+            "</em>"
+          : "") +
         "</span>" +
         (figure !== "" ? '<b class="scene-value">' + figure + "</b>" : "") +
         "</li>"
@@ -230,7 +471,7 @@ export function parliamentScreen(
           .join("") +
         "</tbody></table>"
       : "";
-  const detail = detailText(slide);
+  const detail = ballot ? ballot.participation : detailText(slide);
   const headline = slide.headline;
   const photo = slide.pressImage || (showPhoto ? banner(measure) : "");
   // A first slide or a newscast with no photograph uses the Parliament's local illustration.
@@ -239,17 +480,6 @@ export function parliamentScreen(
     (!panelRows
       ? '<img class="measure-banner scene-emblem" src="/design/hemicycle.svg" alt="">'
       : "");
-  const stamp = isAnnounced(slide)
-    ? slide.status === "égalité"
-      ? "Départage requis"
-      : "Résultat annoncé"
-    : {
-        ouvert: "Vote ouvert",
-        clos: "Vote clos",
-        dépouillement: "Vote clos",
-        suspendu: "Vote suspendu",
-        incident: "Scrutin interrompu",
-      }[slide.status];
   const secondary =
     '<aside class="scene-side' +
     (art && !panelRows ? " scene-art-only" : "") +
@@ -259,9 +489,6 @@ export function parliamentScreen(
       ? '<div class="scene-statistics" data-fit-panel>' +
         "<h2>" +
         h(panelTitle) +
-        (announced && scoreUnit
-          ? " <small>· " + h(scoreUnit) + "</small>"
-          : "") +
         "</h2>" +
         '<ul class="scene-rows' +
         (impacts || national ? " scene-indicators" : "") +
@@ -273,7 +500,13 @@ export function parliamentScreen(
       : "") +
     "</aside>";
   const phase =
-    view.phase && view.phase !== place && view.phase !== kind ? view.phase : "";
+    view.phase &&
+    view.phase !== place &&
+    view.phase !== kind &&
+    !(plenary && view.phase === "Plénière") &&
+    !(inRoom && view.phase === "Commissions")
+      ? view.phase
+      : "";
   return (
     '<div class="stage-frame scene-frame' +
     (press ? " press-screen" : "") +
@@ -297,9 +530,13 @@ export function parliamentScreen(
     h(identity) +
     "</div>" +
     "<h1>" +
-    h(slide.title) +
+    h(ballot ? ballot.title : slide.title) +
     "</h1>" +
-    (slide.body ? '<p class="scene-body">' + h(slide.body) + "</p>" : "") +
+    (ballot
+      ? '<p class="scene-body">' + h(ballot.instruction) + "</p>"
+      : slide.body
+        ? '<p class="scene-body">' + h(slide.body) + "</p>"
+        : "") +
     (slide.sources
       ? '<p class="scene-sources"><small>Sources · ' +
         h(slide.sources) +
@@ -313,11 +550,8 @@ export function parliamentScreen(
         h(headline.title) +
         "</p></div>"
       : "") +
-    (stamp || detail
-      ? '<div class="scene-decision">' +
-        (stamp ? "<strong>" + h(stamp) + "</strong>" : "") +
-        (detail ? "<small>" + h(detail) + "</small>" : "") +
-        "</div>"
+    (detail
+      ? '<div class="scene-decision"><small>' + h(detail) + "</small></div>"
       : "") +
     "</section>" +
     secondary +

@@ -1,7 +1,8 @@
-import { deskPreview } from "./commission-desk.js?v=salle2";
+import { deskFlow, slidePicker } from "./desk-flow.js?v=vote3";
+import { deskPreview } from "./commission-desk.js?v=vote3";
 
 export function plenaryDesk(v, preparedRoom, ui) {
-  const { h, btn, para, details, deskLink, name, pollLabel, icon } = ui;
+  const { h, btn, para, details, deskLink, name, icon } = ui;
   const deck = v.presentations.plenary;
   const { menu, current } = deck;
   const plenary = v.polls.filter((poll) => poll.kind === "plenary");
@@ -23,45 +24,6 @@ export function plenaryDesk(v, preparedRoom, ui) {
     return id && hasSlide(id)
       ? btn(label, present(id), secondary)
       : '<button type="button" disabled>' + h(label) + "</button>";
-  }
-  function ballotControls(poll) {
-    const command = {
-      ouvert: ["close", "Clore le vote"],
-      clos: ["announce", "Annoncer le résultat"],
-      suspendu: ["resume", "Reprendre le scrutin"],
-      égalité: poll.round
-        ? ["draw", "Effectuer le tirage au sort"]
-        : ["tie", "Ouvrir le départage"],
-      incident: ["restart", "Relancer le scrutin"],
-    }[poll.status];
-    return (
-      '<section class="desk-ballot"><h2>' +
-      h(pollLabel(poll)) +
-      "</h2>" +
-      para("Duel · " + v.roomNames[poll.room]) +
-      (poll.expected === undefined
-        ? ""
-        : para(poll.received + " / " + poll.expected + " bulletins reçus")) +
-      '<div class="actions">' +
-      (command
-        ? btn(command[1], {
-            type: command[0],
-            poll: poll.id,
-            reasonRequired: ["draw", "restart", "resume"].includes(command[0]),
-          })
-        : "") +
-      (current.poll === poll.id
-        ? ""
-        : go("Revenir au scrutin", "duel-" + poll.room)) +
-      (poll.status === "ouvert"
-        ? btn(
-            "Suspendre le scrutin",
-            { type: "suspend", poll: poll.id, reasonRequired: true },
-            true,
-          )
-        : "") +
-      "</div></section>"
-    );
   }
   function finalistPanel() {
     if (!rooms.length) return "";
@@ -95,13 +57,10 @@ export function plenaryDesk(v, preparedRoom, ui) {
         );
         return (
           '<div class="plenary-finalist"><h3>' +
-          h(name(id)) +
+          h(id + " · " + name(id)) +
           '</h3><div class="actions">' +
           go("Présenter la proposition", "measure-" + id) +
           (clause ? go("Projeter la clause adoptée", clause.id) : "") +
-          (hasSlide("debate-" + id)
-            ? go("Débattre du texte retenu", "debate-" + id)
-            : "") +
           "</div></div>"
         );
       })
@@ -123,25 +82,19 @@ export function plenaryDesk(v, preparedRoom, ui) {
         room,
       });
     if (v.rooms[room].winner) {
+      const result = menu.find(
+        (item) =>
+          item.room === room &&
+          item.id.startsWith("result-") &&
+          plenary.some(
+            (poll) =>
+              poll.id === item.poll &&
+              poll.winners?.includes(v.rooms[room].winner),
+          ),
+      );
       body +=
         para("Texte adopté · " + name(v.rooms[room].winner)) +
-        go("Projeter le résultat", "duel-" + room);
-      const following = [
-        ...rooms.slice(rooms.indexOf(room) + 1),
-        ...rooms.slice(0, rooms.indexOf(room)),
-      ].find((id) => !v.rooms[id].winner && v.rooms[id].finalists.length === 2);
-      if (
-        phaseIsLive &&
-        !active &&
-        following &&
-        hasSlide("compare-" + following)
-      )
-        body +=
-          '<button type="button" data-next-duel="' +
-          h(following) +
-          '">' +
-          h("Présenter le duel suivant · " + v.roomNames[following]) +
-          "</button>";
+        (result ? go("Reprojeter le résultat", result.id) : "");
     }
     return (
       '<section class="desk-controls"><h2>Conduire la plénière</h2>' +
@@ -149,46 +102,6 @@ export function plenaryDesk(v, preparedRoom, ui) {
       "</section>"
     );
   }
-  function nextPhase() {
-    if (v.phase === "Commissions") {
-      if (rooms.every((id) => v.rooms[id].finalists.length === 2))
-        return btn("Ouvrir la plénière", { type: "phase" });
-      return para(
-        "La plénière pourra s’ouvrir quand chaque commission aura annoncé ses deux finalistes.",
-      );
-    }
-    if (phaseIsLive && rooms.every((id) => v.rooms[id].winner))
-      return btn("Ouvrir le débriefing", { type: "phase" });
-    if (v.phase === "Préparation")
-      return para(
-        "La présidence pourra ouvrir la plénière après les travaux des commissions.",
-      );
-    return "";
-  }
-  const jump =
-    '<label>Page à projeter<select data-stage-slide data-scope="">' +
-    menu
-      .map(
-        (item, i) =>
-          '<option value="' +
-          h(item.id) +
-          '"' +
-          (item.id === current.id ? " selected" : "") +
-          ">" +
-          h(
-            [
-              String(i + 1) + ". " + item.kind,
-              v.roomNames[item.room],
-              item.title,
-              item.part,
-            ]
-              .filter(Boolean)
-              .join(" · "),
-          ) +
-          "</option>",
-      )
-      .join("") +
-    "</select></label>";
   let closing = "";
   if (v.phase === "Débriefing")
     closing =
@@ -209,13 +122,12 @@ export function plenaryDesk(v, preparedRoom, ui) {
     "</span><div><span>Pupitre de la présidence</span><h1>Plénière</h1></div></div>" +
     (screen ? deskLink(screen, "Ouvrir l’écran de projection") : "") +
     '</div><div class="desk-columns"><div>' +
-    deskPreview(deck, "Plénière", v.measures, go, ui) +
-    details("Ordre de projection", jump) +
+    deskPreview(deck, "Plénière", v.measures, ui) +
     "</div><div>" +
-    (active ? ballotControls(active) : "") +
-    finalistPanel() +
+    deskFlow(v, deck, active, go, ui) +
+    details("Choisir un duel", finalistPanel()) +
+    details("Accès à toutes les pages", slidePicker(deck, "", ui)) +
     closing +
-    nextPhase() +
     "</div></div></div>"
   );
 }

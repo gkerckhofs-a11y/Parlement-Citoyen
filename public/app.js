@@ -1,16 +1,16 @@
-import { plenaryDesk } from "./plenary-desk.js?v=salle2";
+import { plenaryDesk } from "./plenary-desk.js?v=vote3";
 import {
   projectionLink,
   projectionRoute,
   screenScope,
 } from "./projection-access.js";
-import { commissionDesk } from "./commission-desk.js?v=salle2";
+import { commissionDesk } from "./commission-desk.js?v=vote3";
 import { reportRows } from "./report.js";
 import { editor } from "./editor.js";
 import {
   parliamentScreen,
   projectionScope,
-} from "./commission-screen.js?v=salle2";
+} from "./commission-screen.js?v=vote3";
 const main = document.querySelector("#main"),
   feedback = document.querySelector("#feedback"),
   sessionLabel = document.querySelector("#session");
@@ -318,8 +318,19 @@ const pollLabel = (p) =>
     suspendu: "Scrutin suspendu",
     incident: "Scrutin interrompu",
   })[p.status] || p.status;
-function polls(r, commissionOnly = false) {
-  return v.polls
+function voterPoll() {
+  if (role() !== "Citoyen") return null;
+  if (v.phase === "Plénière")
+    return v.polls.filter((p) => p.kind === "plenary" && p.eligible).at(-1);
+  if (v.phase === "Commissions")
+    return v.polls.find(
+      (p) => p.eligible && p.kind !== "plenary" && p.status !== "annoncé",
+    );
+  return null;
+}
+
+function polls(r, commissionOnly = false, source = v.polls) {
+  return source
     .filter((p) => p.room === r && (!commissionOnly || p.kind !== "plenary"))
     .slice()
     .reverse()
@@ -449,6 +460,24 @@ function polls(r, commissionOnly = false) {
       return section(labels[p.kind], body);
     })
     .join("");
+}
+function citizenBallotPanel() {
+  const ballot = voterPoll();
+  if (!ballot) return "";
+  if (tab !== "Assemblée")
+    return ballot.status === "ouvert" && !ballot.voted
+      ? '<button type="button" data-tab="Assemblée">Accéder à mon bulletin</button>'
+      : "";
+  const place =
+    (ballot.kind === "plenary" ? "Plénière · " : "Commission · ") +
+    v.roomNames[ballot.room];
+  return (
+    '<section class="current-ballot" aria-label="Scrutin de la séance"><h2>' +
+    h(place) +
+    "</h2>" +
+    polls(ballot.room, false, [ballot]) +
+    "</section>"
+  );
 }
 function proposals(r) {
   return v.amends
@@ -652,6 +681,7 @@ setInterval(() => {
   }
 }, 1000);
 function assembly() {
+  const ballot = voterPoll();
   let list = Object.keys(v.rooms);
   if (!list.includes(room)) room = v.me.room || list[0];
   let r = v.rooms[room],
@@ -834,7 +864,11 @@ function assembly() {
         )
       : "") +
     (r.winner ? section("Mesure adoptée", aff(r.winner)) : "") +
-    polls(room) +
+    polls(
+      room,
+      false,
+      ballot ? v.polls.filter((p) => p.id !== ballot.id) : v.polls,
+    ) +
     actions +
     proposals(room) +
     (display
@@ -1230,15 +1264,18 @@ function fitStage() {
     const bottom = panelRect.bottom - parseFloat(style.paddingBottom);
     const isStats = panel.classList.contains("scene-statistics");
     let low = 1;
-    let high = Math.min(isStats ? 50 : 64,
+    let high = Math.min(
+      isStats ? 50 : 64,
       Math.max(17, panel.clientWidth / (isStats ? 19 : 15)),
-      Math.max(18, innerHeight / 13));
+      Math.max(18, innerHeight / 13),
+    );
     for (let i = 0; i < 12; i++) {
       const mid = (low + high) / 2;
       panel.style.fontSize = mid + "px";
-      const fits = panel.scrollWidth <= panel.clientWidth &&
-        panel.firstElementChild.getBoundingClientRect().top >= top - .25 &&
-        panel.lastElementChild.getBoundingClientRect().bottom <= bottom + .25;
+      const fits =
+        panel.scrollWidth <= panel.clientWidth &&
+        panel.firstElementChild.getBoundingClientRect().top >= top - 0.25 &&
+        panel.lastElementChild.getBoundingClientRect().bottom <= bottom + 0.25;
       if (fits) low = mid;
       else high = mid;
     }
@@ -1806,6 +1843,7 @@ function render() {
       .join("") +
     btn("Quitter", { ui: "exit" }, true) +
     "</nav>" +
+    citizenBallotPanel() +
     {
       Assemblée: assembly,
       Journal: journal,
@@ -1816,11 +1854,28 @@ function render() {
     }[tab]();
   loadPhotos();
 }
+function editingCurrentForm(next) {
+  return [...main.querySelectorAll("form:focus-within, form[data-dirty]")].some(
+    (f) => {
+      const action = f.dataset.action && JSON.parse(f.dataset.action);
+      return (
+        action?.type !== "vote" ||
+        next.polls.some(
+          (p) => p.id === action.poll && p.status === "ouvert" && !p.voted,
+        )
+      );
+    },
+  );
+}
+let readSequence = 0,
+  appliedRead = 0;
 async function refresh(force = false) {
   if (!auth || (pending && !force)) return;
+  const requestNumber = ++readSequence;
   let current = auth,
     next = await call("view", current);
-  if (current !== auth) return;
+  if (current !== auth || requestNumber < appliedRead) return;
+  appliedRead = requestNumber;
   if (
     projectorPage &&
     (next.me?.role !== "Projection" ||
@@ -1841,7 +1896,7 @@ async function refresh(force = false) {
   if (
     !force &&
     (document.querySelector("#scenario-editor form") ||
-      main.querySelector("form:focus-within, form[data-dirty]") ||
+      editingCurrentForm(next) ||
       json === last)
   )
     return;
@@ -2034,15 +2089,6 @@ main.addEventListener("click", (e) => {
   }
   let b = e.target.closest("button");
   if (!b) return;
-  if (
-    b.dataset.nextDuel &&
-    plenaryRequested() &&
-    Object.hasOwn(v.rooms, b.dataset.nextDuel)
-  ) {
-    preparedDuel = b.dataset.nextDuel;
-    run({ type: "presentSlide", room: "", slide: "compare-" + preparedDuel });
-    return;
-  }
   if (b.hasAttribute("data-desk-plenary")) {
     changeDesk("", true);
     return;

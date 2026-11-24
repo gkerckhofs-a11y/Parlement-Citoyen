@@ -1,0 +1,242 @@
+import { dimensions } from "./scenario.mjs";
+// Split long contributions at word boundaries so a projector never needs scrolling.
+function passages(text, limit = 300) {
+  const chunks = [];
+  let line = "";
+  for (const word of String(text || "").match(/\S+/gu) || []) {
+    if (line && line.length + word.length + 1 > limit) {
+      chunks.push(line);
+      line = "";
+    }
+    let rest = word;
+    while (rest.length > limit) {
+      chunks.push(rest.slice(0, limit));
+      rest = rest.slice(limit);
+    }
+    line = line ? line + " " + rest : rest;
+  }
+  if (line || !chunks.length) chunks.push(line);
+  return chunks;
+}
+export function plenarySlides(s, scope = "") {
+  const slides = [];
+  function add(id, kind, room, title, text, extra = {}) {
+    const parts = passages(text);
+    parts.forEach((body, i) =>
+      slides.push({
+        id: id + (i ? "~" + i : ""),
+        kind,
+        room,
+        title,
+        body,
+        ...(parts.length > 1 ? { part: i + 1 + " / " + parts.length } : {}),
+        ...extra,
+      }),
+    );
+  }
+  const lookup = (id) =>
+    s.pack.measures.find((m) => m.id === id)?.title ||
+    s.amends.find((a) => a.id === id)?.text ||
+    id;
+  function ballot(room, p, id) {
+    const announced = p && ["annoncé", "égalité"].includes(p.status);
+    const kind = announced ? "Résultat du vote" : "Vote";
+    const title = {
+      plenary: "Choix de la plénière",
+      amend: "Vote sur l’amendement",
+      prelim: "Sélection des amendements",
+      selection: "Choix des finalistes",
+    }[p?.kind || "plenary"];
+    const status = p?.status || "à ouvrir";
+    const lines = p?.options || s.rooms[room].finalists;
+    const caption = {
+      ouvert: "Le scrutin est ouvert. Votez sur votre appareil.",
+      clos: "Le vote est clos. Le résultat sera annoncé par la présidence.",
+      suspendu: "Le vote est suspendu.",
+      incident: "Le scrutin est interrompu.",
+      égalité: "Les voix sont partagées. Un départage est nécessaire.",
+      annoncé: "Le dépouillement est terminé.",
+      "à ouvrir": "La présidence va ouvrir le scrutin.",
+    }[status];
+    // One result per option for large ballots. The two plenary finalists share a slide.
+    const options = lines.flatMap((option) => {
+      const row = announced && p.result?.rows.find((r) => r.id === option);
+      const score = row
+        ? (row.weight / p.result.denominator).toLocaleString("fr-BE", {
+            maximumFractionDigits: 3,
+          })
+        : "";
+      return passages(lookup(option), 200).map((title) => ({
+        title,
+        score,
+        selected: !!p?.winners?.includes(option),
+      }));
+    });
+    let groups = [],
+      group = [];
+    for (const o of options) {
+      if (
+        group.length &&
+        (group.length >= 2 || o.title.length + group[0].title.length > 245)
+      ) {
+        groups.push(group);
+        group = [];
+      }
+      group.push(o);
+    }
+    if (group.length) groups.push(group);
+    (groups.length ? groups : [[]]).forEach((rows, i) => {
+      const extra = {
+        ballot: true,
+        poll: p?.id || null,
+        status,
+        rows,
+        ...(announced
+          ? { turnout: p.result.voters, abstain: p.result.abstain }
+          : {}),
+        ...(groups.length > 1 ? { part: i + 1 + " / " + groups.length } : {}),
+      };
+      add(id + (i ? "-" + i : ""), kind, room, title, caption, extra);
+    });
+  }
+  if (!scope)
+    add(
+      "opening",
+      "Séance plénière",
+      "",
+      "Parlement citoyen",
+      s.phase === "Débriefing"
+        ? "Le Parlement a arrêté son plan national."
+        : s.phase === "Plénière"
+          ? "Les commissions présentent leurs propositions finalistes."
+          : "Les commissions préparent leurs propositions.",
+    );
+  for (const [room, r] of Object.entries(s.rooms)) {
+    if (scope && scope !== room) continue;
+    const finalists =
+      !scope && (s.phase === "Plénière" || s.phase === "Débriefing");
+    const measures = s.pack.measures.filter(
+      (m) => m.room === room && (!finalists || r.finalists.includes(m.id)),
+    );
+    for (const m of measures) {
+      add("measure-" + m.id, "Proposition", room, m.title, m.text, {
+        image: m.id,
+      });
+      const adopted = s.amends.find((a) => a.id === r.official[m.id]);
+      const profile = m.variants.find((t) => t.id === adopted?.profile) || m;
+      for (const a of s.amends.filter(
+        (a) =>
+          a.measure === m.id &&
+          [
+            "admissible",
+            "adopté",
+            "rejeté",
+            "écarté au tour préliminaire",
+          ].includes(a.status),
+      )) {
+        add("amend-" + a.id, "Amendement · " + a.status, room, m.title, a.text);
+      }
+      add("effects-" + m.id, "Effets envisagés", room, m.title, "", {
+        rows: dimensions.map((title, i) => ({
+          title,
+          score: profile.trends[i],
+        })),
+      });
+      if (
+        scope &&
+        s.phase === "Commissions" &&
+        !r.locked &&
+        s.amends.some((a) => a.measure === m.id && a.status === "admissible") &&
+        !s.polls.some(
+          (p) => p.room === room && !["invalidé", "annoncé"].includes(p.status),
+        )
+      )
+        add("call-" + m.id, "Vote", room, "Vote des amendements", m.title, {
+          openKind: "amend",
+          measure: m.id,
+        });
+    }
+    if (
+      scope &&
+      s.phase === "Commissions" &&
+      !r.finalists.length &&
+      !s.polls.some(
+        (p) => p.room === room && !["invalidé", "annoncé"].includes(p.status),
+      )
+    )
+      add(
+        "select-" + room,
+        "Vote",
+        room,
+        "Sélection des finalistes",
+        "Chaque citoyen peut soutenir deux propositions.",
+        { openKind: "selection" },
+      );
+    if (finalists)
+      ballot(
+        room,
+        s.polls
+          .filter(
+            (p) =>
+              p.room === room &&
+              p.kind === "plenary" &&
+              p.status !== "invalidé",
+          )
+          .at(-1),
+        "duel-" + room,
+      );
+    else
+      for (const p of s.polls.filter(
+        (p) => p.room === room && p.status !== "invalidé",
+      ))
+        ballot(room, p, "poll-" + p.id);
+  }
+  if (!scope && s.phase === "Débriefing")
+    for (const [room, r] of Object.entries(s.rooms)) {
+      const m = s.pack.measures.find((m) => m.id === r.winner);
+      if (!m) continue;
+      add("plan-" + room, "Plan national adopté", room, m.title, m.text, {
+        image: m.id,
+      });
+      const clause = s.amends.find((a) => a.id === r.official[m.id]);
+      if (clause)
+        add(
+          "plan-clause-" + room,
+          "Clause adoptée",
+          room,
+          m.title,
+          clause.text,
+        );
+    }
+  if (!scope && s.phase === "Débriefing") {
+    const adopted = Object.entries(s.rooms).map(([room, r]) => {
+      const m = s.pack.measures.find((m) => m.id === r.winner);
+      const a = s.amends.find((a) => a.id === r.official[m?.id]);
+      return m?.variants.find((t) => t.id === a?.profile) || m;
+    });
+    add(
+      "indicators",
+      "Plan national adopté",
+      "",
+      "Effets du plan national",
+      "",
+      {
+        rows: dimensions.map((title, i) => ({
+          title,
+          score: adopted.reduce((n, m) => n + (m?.scores[i] || 0) / 2, 0),
+        })),
+      },
+    );
+  }
+  return slides;
+}
+export function currentSlide(s, slides, scope = "") {
+  const id = scope ? s.rooms[scope].displaySlide : s.plenarySlide;
+  return (
+    slides.find((x) => x.id === id) ||
+    (scope && slides.find((x) => x.id === "measure-" + s.rooms[scope].focus)) ||
+    (s.phase === "Débriefing" &&
+      slides.find((x) => x.id.startsWith("plan-"))) ||
+    slides[0]
+  );
+}

@@ -36,7 +36,7 @@ async function api(op, body = {}) {
 }
 async function enter(code) {
   const state = await api("view", { code, id: "REG" });
-  const { openGoogleDesk } = await import("./app.js?v=salle3");
+  const { openGoogleDesk } = await import("./app.js?v=slides4");
   openGoogleDesk(code, state);
   history.replaceState(null, "", "/admin?session=" + encodeURIComponent(code));
   notice.textContent = "";

@@ -764,7 +764,9 @@ function assembly() {
         room,
         kind: "plenary",
       });
-    cmd = details("Commandes de salle", cmd);
+    cmd =
+      (role() === "Modérateur" ? slideDesk(room) : "") +
+      details("Commandes de salle", cmd);
   }
   let actions = "";
   if (
@@ -1105,9 +1107,183 @@ function accessPanels() {
   }
   return html;
 }
+let controlledStage = "";
+function slideDesk(scope) {
+  const deck = v.presentations?.[scope || "plenary"];
+  if (!deck?.menu) return "";
+  const { current: c, menu, position, total } = deck;
+  const go = (label, index) =>
+    menu[index]
+      ? btn(label, { type: "presentSlide", room: scope, slide: menu[index].id })
+      : "<button disabled>" + label + "</button>";
+  const opener =
+    c.openKind ||
+    (c.ballot && !c.poll && !scope && v.phase === "Plénière" ? "plenary" : "");
+  let commands = opener
+    ? btn("Ouvrir le vote", {
+        type: "open",
+        room: c.room,
+        kind: opener,
+        ...(c.measure ? { measure: c.measure } : {}),
+      })
+    : "";
+  if (c.poll) {
+    const p = v.polls.find((p) => p.id === c.poll);
+    const action = {
+      ouvert: ["close", "Clore le vote"],
+      clos: ["announce", "Annoncer le résultat"],
+      égalité: p?.round
+        ? ["draw", "Tirer au sort"]
+        : ["tie", "Ouvrir le départage"],
+      incident: ["restart", "Relancer le scrutin"],
+      suspendu: ["resume", "Reprendre le scrutin"],
+    }[p?.status];
+    if (action && (p.kind !== "plenary" || chair()))
+      commands += btn(action[1], {
+        type: action[0],
+        poll: p.id,
+        reasonRequired: ["draw", "restart", "resume"].includes(action[0]),
+      });
+  }
+  const nextPhase = {
+    Préparation: "Ouvrir les commissions",
+    Commissions: "Passer en plénière",
+    Plénière: "Passer au débriefing",
+  }[v.phase];
+  if (!scope && nextPhase) commands += btn(nextPhase, { type: "phase" }, true);
+  return (
+    '<section class="slide-desk"><h3>Piloter la projection</h3>' +
+    (chair()
+      ? "<label>Salle projetée<select data-stage-scope>" +
+        ["", ...Object.keys(v.rooms)]
+          .map(
+            (id) =>
+              '<option value="' +
+              h(id) +
+              '" ' +
+              (id === scope ? "selected" : "") +
+              ">" +
+              h(v.roomNames[id] || "Plénière") +
+              "</option>",
+          )
+          .join("") +
+        "</select></label>"
+      : "") +
+    "<p><strong>À l’écran · " +
+    position +
+    " / " +
+    total +
+    "</strong><br>" +
+    h(c.kind + " · " + c.title) +
+    '</p><div class="actions">' +
+    go("← Précédente", position - 2) +
+    go("Suivante →", position) +
+    '</div><label>Aller à une diapositive<select data-stage-slide data-scope="' +
+    h(scope) +
+    '">' +
+    menu
+      .map(
+        (item, i) =>
+          '<option value="' +
+          h(item.id) +
+          '" ' +
+          (item.id === c.id ? "selected" : "") +
+          ">" +
+          h(
+            i +
+              1 +
+              ". " +
+              (v.roomNames[item.room] ? v.roomNames[item.room] + " · " : "") +
+              item.kind +
+              " · " +
+              item.title +
+              (item.part ? " · " + item.part : ""),
+          ) +
+          "</option>",
+      )
+      .join("") +
+    '</select></label><div class="actions">' +
+    commands +
+    "</div></section>"
+  );
+}
+main.addEventListener("change", (e) => {
+  if (e.target.matches("[data-stage-scope]")) {
+    controlledStage = e.target.value;
+    render();
+  }
+  if (e.target.matches("[data-stage-slide]"))
+    run({
+      type: "presentSlide",
+      room: e.target.dataset.scope,
+      slide: e.target.value,
+    });
+});
+function stageScreen(deck) {
+  const c =
+    !v.me.room && v.slide
+      ? { kind: "Journal 2040", title: "Le journal du futur", body: v.slide }
+      : deck.current;
+  const m = c.image && v.measures.find((m) => m.id === c.image);
+  return (
+    '<section class="stage-frame"><article class="stage-card"><div class="stage-text"><div class="stage-caption">' +
+    h([v.roomNames[c.room], c.kind, c.part].filter(Boolean).join(" · ")) +
+    "</div><h1>" +
+    h(c.title) +
+    "</h1>" +
+    (c.body ? para(c.body) : "") +
+    (c.rows
+      ? "<ul>" +
+        c.rows
+          .map(
+            (o) =>
+              '<li class="' +
+              (o.selected ? "stage-winner" : "") +
+              '"><span>' +
+              h(o.title) +
+              (o.selected ? " · Retenu" : "") +
+              "</span><b>" +
+              h(o.score) +
+              "</b></li>",
+          )
+          .join("") +
+        "</ul>"
+      : "") +
+    (c.turnout !== undefined
+      ? "<small>" +
+        h(c.turnout + " votants · " + c.abstain + " abstentions") +
+        "</small>"
+      : "") +
+    "</div>" +
+    (m ? banner(m) : "") +
+    "</article></section>"
+  );
+}
+function fitStage() {
+  const card = main.querySelector(".stage-card"),
+    text = card?.querySelector(".stage-text");
+  if (!text) return;
+  let low = 1,
+    high = Math.min(48, Math.max(20, innerWidth / 42));
+  for (let i = 0; i < 10; i++) {
+    const mid = (low + high) / 2;
+    text.style.fontSize = mid + "px";
+    if (
+      text.scrollHeight <= text.clientHeight + 1 &&
+      text.scrollWidth <= text.clientWidth + 1
+    )
+      low = mid;
+    else high = mid;
+  }
+  text.style.fontSize = low + "px";
+}
+window.addEventListener("resize", fitStage);
+document.fonts.ready.then(fitStage);
+
 function admin() {
   let out =
     "<h2>Conduite de séance</h2>" +
+    slideDesk(controlledStage) +
     accessPanels() +
     '<div class="room-board">' +
     Object.keys(v.rooms)
@@ -1533,9 +1709,16 @@ function render() {
         : v.me.id === "ECR-PL"
           ? "Plénière"
           : "Parlement";
+    const deck = v.presentations?.[v.me.room || "plenary"];
+    if (deck) main.classList.add("stage");
     main.innerHTML =
       '<div class="projection-tools"><button type="button" data-fullscreen>Plein écran</button></div>' +
-      (v.me.id === "ECR-NEWS" ? pressScreen() : assembly());
+      (deck
+        ? stageScreen(deck)
+        : v.me.id === "ECR-NEWS"
+          ? pressScreen()
+          : assembly());
+    if (deck) fitStage();
     updateFullButton();
     loadPhotos();
     return;

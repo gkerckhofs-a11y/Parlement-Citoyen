@@ -5,6 +5,7 @@ import {
   createHmac,
   timingSafeEqual,
 } from "node:crypto";
+import { plenarySlides, currentSlide } from "./plenary.mjs";
 import { check, validate, dimensions } from "./scenario.mjs";
 const now = () => new Date().toISOString();
 const str = (v, max = 2400) => {
@@ -179,6 +180,8 @@ function start(s, room, kind, options, seats, extra = {}) {
   };
   p.eligible = electorate(s, p).map((a) => a.id);
   s.polls.push(p);
+  if (kind === "plenary") s.plenarySlide = "duel-" + room;
+  else s.rooms[room].displaySlide = "poll-" + p.id;
   return p;
 }
 export function tally(p) {
@@ -262,6 +265,24 @@ export function act(s, a, x) {
     return;
   }
   check(a.present, "Accès signalé absent");
+  if (type === "presentSlide") {
+    check(x.room ? r && controls(a, x.room) : chair(a));
+    const slides = plenarySlides(s, x.room);
+    check(
+      slides.some((slide) => slide.id === x.slide),
+      "Cette diapositive n’est plus disponible.",
+    );
+    if (x.room) {
+      r.displaySlide = x.slide;
+      const image = slides.find((slide) => slide.id === x.slide)?.image;
+      if (image) r.focus = image;
+    } else {
+      s.plenarySlide = x.slide;
+      s.showBalance = false;
+      s.jt = -1;
+    }
+    return;
+  }
   if (type === "phase") {
     check(chair(a));
     let next = {
@@ -293,12 +314,14 @@ export function act(s, a, x) {
         "Les duels doivent être annoncés",
       );
     s.phase = next;
+    delete s.plenarySlide;
     note(s, a, next);
     return;
   }
   if (type === "focus") {
     check(r && controls(a, x.room) && m?.room === x.room);
     r.focus = m.id;
+    r.displaySlide = "measure-" + m.id;
     r.until = x.minutes
       ? Date.now() + Math.min(180, Math.max(1, Number(x.minutes))) * 60000
       : 0;
@@ -687,6 +710,10 @@ export function act(s, a, x) {
       p.status = "annoncé";
       finish(s, p, w);
     }
+    if (["announce", "close", "draw"].includes(type)) {
+      if (p.kind === "plenary") s.plenarySlide = "duel-" + p.room;
+      else s.rooms[p.room].displaySlide = "poll-" + p.id;
+    }
     note(
       s,
       a,
@@ -834,6 +861,7 @@ export function act(s, a, x) {
   if (type === "projectBalance") {
     check(chair(a) && s.phase === "Débriefing");
     s.showBalance = !!x.show;
+    if (x.show) s.plenarySlide = "plan-" + Object.keys(s.rooms)[0];
     s.jt = -1;
     return;
   }
@@ -1052,6 +1080,34 @@ export function view(s, a) {
       })),
     slide: s.jt >= 0 ? journal(s)[s.jt] : null,
   };
+  const stages = staff
+    ? ["", ...Object.keys(rooms)]
+    : a.id === "ECR-PL"
+      ? [""]
+      : (projection || a.role === "Modérateur") && a.room
+        ? [a.room]
+        : [];
+  if (stages.length) {
+    result.presentations = {};
+    for (const scope of stages) {
+      const slides = plenarySlides(s, scope),
+        selected = currentSlide(s, slides, scope);
+      const stage = {
+        current: selected,
+        position: slides.indexOf(selected) + 1,
+        total: slides.length,
+      };
+      if (!projection)
+        stage.menu = slides.map(({ id, kind, room, title, part }) => ({
+          id,
+          kind,
+          room,
+          title,
+          part,
+        }));
+      result.presentations[scope || "plenary"] = stage;
+    }
+  }
   if (projection) {
     if (s.showBalance && !a.room) {
       const { dimensions, initial, final, chosen } = balance(s);

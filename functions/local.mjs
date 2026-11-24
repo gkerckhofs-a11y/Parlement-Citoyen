@@ -44,6 +44,8 @@ const app = api(
 );
 const publicFiles = {
   "/admin": ["admin.html", "text/html"],
+  "/projection-access.js": ["projection-access.js", "text/javascript"],
+  "/plenary-desk.js": ["plenary-desk.js", "text/javascript"],
   "/admin.js": ["admin.js", "text/javascript"],
   "/google.js": ["google.js", "text/javascript"],
   "/design/icons.svg": ["design/icons.svg", "image/svg+xml"],
@@ -68,7 +70,10 @@ for (const name of fs.readdirSync(path.join(root, "public/design/measures")))
 http
   .createServer((req, res) => {
     if (req.url.startsWith("/api/")) return app(req, res);
-    let f = publicFiles[new URL(req.url, "http://localhost").pathname];
+    const pathname = new URL(req.url, "http://localhost").pathname;
+    const f = pathname.startsWith("/projection/")
+      ? ["projection.html", "text/html"]
+      : publicFiles[pathname];
     if (!Array.isArray(f)) {
       res.writeHead(404);
       return res.end();

@@ -26,28 +26,57 @@ function passages(text, limit = 300) {
   if (line || !chunks.length) chunks.push(line);
   return chunks;
 }
-export function plenarySlides(s, scope = "") {
+export function plenarySlides(s, scope = "", journal = []) {
   const slides = [];
   function add(id, kind, room, title, text, extra = {}) {
-    // Keep long custom titles legible without hiding the remainder of the text.
-    const longTitle = title.length > 80;
-    const parts = passages(
-      longTitle && extra.image
-        ? [title, text].filter(Boolean).join(" — ")
-        : text,
-    );
-    const heading = longTitle ? title.slice(0, 74).trimEnd() + "…" : title;
-    parts.forEach((body, i) =>
+    // Ordinary titles stay intact. Unusually long titles continue as headings on later pages.
+    const headings = title.length <= 140 ? [title] : passages(title, 140);
+    const bodies = passages(text);
+    const pageCount = Math.max(headings.length, bodies.length);
+    for (let i = 0; i < pageCount; i++)
       slides.push({
         id: id + (i ? "~" + i : ""),
         kind,
         room,
-        title: heading,
-        body,
-        ...(parts.length > 1 ? { part: i + 1 + " / " + parts.length } : {}),
+        title: headings[Math.min(i, headings.length - 1)],
+        body: bodies[i] || "",
+        ...(pageCount > 1 ? { part: i + 1 + " / " + pageCount } : {}),
         ...extra,
-      }),
-    );
+      });
+  }
+  // Paginate the options themselves so long custom titles and every result stay readable.
+  function pagesOfRows(rows, maxRows = 2, maxLength = 245) {
+    const groups = [];
+    let group = [], length = 0;
+    for (const row of rows) {
+      if (group.length && (group.length >= maxRows || length + row.title.length > maxLength)) {
+        groups.push(group);
+        group = [];
+        length = 0;
+      }
+      group.push(row);
+      length += row.title.length;
+    }
+    if (group.length) groups.push(group);
+    return groups.length ? groups : [[]];
+  }
+  function measureRows(room, ids) {
+    return ids.flatMap((id) => {
+      const m = s.pack.measures.find((v) => v.id === id);
+      const clause = s.amends.find((a) => a.id === s.rooms[room].official[id]);
+      const version = m.variants.find((v) => v.id === clause?.profile) || m;
+      return passages(m.title, 175).map((title) => ({
+        title, measure: id, version: version.id, trends: version.trends,
+        status: clause ? "Texte amendé" : "Texte initial",
+      }));
+    });
+  }
+  function rowSlides(id, kind, room, title, rows, maxRows) {
+    const groups = pagesOfRows(rows, maxRows);
+    groups.forEach((list, i) => add(id + (i ? "~" + i : ""), kind, room, title, "", {
+      rows: list,
+      ...(groups.length > 1 ? { part: (i + 1) + " / " + groups.length } : {}),
+    }));
   }
   function ballot(room, p, id) {
     const announced = p && ["annoncé", "égalité"].includes(p.status);
@@ -93,26 +122,17 @@ export function plenarySlides(s, scope = "") {
         }),
       );
     });
-    let groups = [],
-      group = [];
-    for (const o of options) {
-      if (
-        group.length &&
-        (group.length >= 2 || o.title.length + group[0].title.length > 245)
-      ) {
-        groups.push(group);
-        group = [];
-      }
-      group.push(o);
-    }
-    if (group.length) groups.push(group);
-    (groups.length ? groups : [[]]).forEach((rows, i) => {
+    const groups = pagesOfRows(options);
+    groups.forEach((rows, i) => {
       const extra = {
         ballot: true,
         poll: p?.id || null,
         status,
         rows,
         ...(p?.base ? { measure: p.base } : {}),
+        ...(!p && s.phase === "Plénière" && !s.polls.some((poll) =>
+          poll.kind === "plenary" && !["annoncé", "invalidé"].includes(poll.status),
+        ) ? { openKind: "plenary" } : {}),
         ...(announced
           ? { turnout: p.result.voters, abstain: p.result.abstain }
           : {}),
@@ -147,9 +167,11 @@ export function plenarySlides(s, scope = "") {
       });
       const adopted = s.amends.find((a) => a.id === r.official[m.id]);
       const profile = m.variants.find((t) => t.id === adopted?.profile) || m;
-      const timer = r.focus === m.id && r.until ? { until: r.until } : {};
+      const until = scope ? (r.focus === m.id && r.until)
+        : (s.plenaryTimer?.measure === m.id && s.plenaryTimer.until);
+      const timer = until ? { until } : {};
       for (const a of s.amends.filter(
-        (a) => a.measure === m.id && publishedAmendment(a),
+        (a) => a.measure === m.id && publishedAmendment(a) && (!finalists || a.id === adopted?.id),
       )) {
         const subject = { measure: m.id, amendment: a.id, version: a.profile };
         add(
@@ -160,7 +182,7 @@ export function plenarySlides(s, scope = "") {
           a.text,
           subject,
         );
-        if (scope)
+        if (scope || finalists)
           add("discuss-" + a.id, "Débat", room, m.title, a.text, {
             ...subject,
             ...timer,
@@ -173,7 +195,7 @@ export function plenarySlides(s, scope = "") {
           score: profile.trends[i],
         })),
       });
-      if (scope)
+      if (scope || finalists)
         add("debate-" + m.id, "Débat", room, m.title, adopted?.text || m.text, {
           measure: m.id,
           version: profile.id,
@@ -209,20 +231,16 @@ export function plenarySlides(s, scope = "") {
         "Chaque citoyen peut soutenir deux propositions.",
         { openKind: "selection" },
       );
-    if (finalists)
-      ballot(
-        room,
-        s.polls
-          .filter(
-            (p) =>
-              p.room === room &&
-              p.kind === "plenary" &&
-              p.status !== "invalidé",
-          )
-          .at(-1),
-        "duel-" + room,
+    if (finalists) {
+      rowSlides("compare-" + room, "Comparaison", room, "Les deux finalistes",
+        measureRows(room, r.finalists), 2);
+      const ballots = s.polls.filter((p) =>
+        p.room === room && p.kind === "plenary" && p.status !== "invalidé",
       );
-    else
+      for (const previous of ballots.slice(0, -1))
+        ballot(room, previous, "poll-" + previous.id);
+      ballot(room, ballots.at(-1), "duel-" + room);
+    } else
       for (const p of s.polls.filter(
         (p) =>
           p.room === room &&
@@ -231,12 +249,16 @@ export function plenarySlides(s, scope = "") {
       ))
         ballot(room, p, "poll-" + p.id);
   }
-  if (!scope && s.phase === "Débriefing")
+  if (!scope && s.phase === "Débriefing") {
+    const rows = Object.entries(s.rooms).flatMap(([room, r]) =>
+      r.winner ? measureRows(room, [r.winner]) : [],
+    );
+    rowSlides("balance", "Bilan de la plénière", "", "Les décisions adoptées", rows, 4);
     for (const [room, r] of Object.entries(s.rooms)) {
       const m = s.pack.measures.find((m) => m.id === r.winner);
       if (!m) continue;
       add("plan-" + room, "Plan national adopté", room, m.title, m.text, {
-        image: m.id,
+        image: m.id, measure: m.id, version: m.id,
       });
       const clause = s.amends.find((a) => a.id === r.official[m.id]);
       if (clause)
@@ -246,9 +268,9 @@ export function plenarySlides(s, scope = "") {
           room,
           m.title,
           clause.text,
+          { measure: m.id, amendment: clause.id, version: clause.profile },
         );
     }
-  if (!scope && s.phase === "Débriefing") {
     const adopted = Object.entries(s.rooms).map(([room, r]) => {
       const m = s.pack.measures.find((m) => m.id === r.winner);
       const a = s.amends.find((a) => a.id === r.official[m?.id]);
@@ -267,16 +289,23 @@ export function plenarySlides(s, scope = "") {
         })),
       },
     );
+    journal.forEach((text, index) => add(
+      "journal-" + index, "Journal 2040", "", "Le journal du futur",
+      text, { journalIndex: index },
+    ));
   }
   return slides;
 }
 export function currentSlide(s, slides, scope = "") {
-  const id = scope ? s.rooms[scope].displaySlide : s.plenarySlide;
+  let id = scope ? s.rooms[scope].displaySlide : s.plenarySlide;
+  if (!scope && s.phase === "Débriefing" && s.jt >= 0 &&
+      !id?.match(/^journal-\d+(?:~\d+)?$/))
+    id = "journal-" + s.jt;
   return (
     slides.find((x) => x.id === id) ||
     (scope && slides.find((x) => x.id === "measure-" + s.rooms[scope].focus)) ||
     (s.phase === "Débriefing" &&
-      slides.find((x) => x.id.startsWith("plan-"))) ||
+      slides.find((x) => x.id === "balance")) ||
     slides[0]
   );
 }

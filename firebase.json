@@ -11,6 +11,10 @@
         "destination": "/admin.html"
       },
       {
+        "source": "/projection/**",
+        "destination": "/projection.html"
+      },
+      {
         "source": "/api/**",
         "function": {
           "functionId": "parliament",

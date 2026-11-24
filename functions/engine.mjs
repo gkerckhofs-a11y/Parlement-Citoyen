@@ -82,7 +82,6 @@ export function create(pack, n, review = false, custom = {}) {
   add("ENS", "Enseignant");
   add("ECR", "Projection");
   add("ECR-PL", "Projection");
-  ensurePressScreen(s);
   rooms.forEach((r) => {
     s.rooms[r] = {
       focus: pack.measures.find((m) => m.room === r).id,
@@ -94,6 +93,7 @@ export function create(pack, n, review = false, custom = {}) {
     add("MOD-" + r, "Modérateur", "", r);
     add("ECR-" + r, "Projection", "", r);
   });
+  ensureProjectionScreens(s);
   const nl = Math.min(pack.lobbies.length, n === 50 ? 4 : counts[1], counts[1]),
     nm = Math.min(pack.media.length, n === 50 ? 2 : counts[2], counts[2]);
   const offsets = rooms.map(
@@ -114,16 +114,23 @@ export function create(pack, n, review = false, custom = {}) {
     add("J" + (i + 1), "Journaliste", "J" + (i % nm));
   return s;
 }
-// Older sessions acquire the press screen on their next read or action.
-export function ensurePressScreen(s) {
-  s.members["ECR-NEWS"] ??= {
-    id: "ECR-NEWS",
-    role: "Projection",
-    group: "",
-    room: "",
-    present: true,
-  };
+function plenaryScreenId(s) {
+  // A custom commission with code PL already owns ECR-PL.
+  return s.members["ECR-PL"]?.room ? "ECR-PLENIERE-PUBLIQUE" : "ECR-PL";
 }
+function pressScreenId(s) {
+  return s.members["ECR-NEWS"]?.room ? "ECR-PRESSE-PUBLIQUE" : "ECR-NEWS";
+}
+function generalScreenId(s) {
+  const legacy = s.members["ECR-GEN"];
+  return !s.members.ECR && legacy?.role === "Projection" && !legacy.room ? "ECR-GEN" : "ECR";
+}
+// Restore missing read-only screens on demand without replacing pre-existing credentials.
+export function ensureProjectionScreens(s) {
+  for (const id of [generalScreenId(s), pressScreenId(s), plenaryScreenId(s)])
+    s.members[id] ??= { id, role: "Projection", group: "", room: "", present: true };
+}
+export { ensureProjectionScreens as ensurePressScreen };
 export function identify(s, id, key) {
   let m = s.members[id];
   check(
@@ -183,6 +190,10 @@ function showRoomSlide(room, id, measureId) {
   }
   room.displaySlide = id;
 }
+function slidesFor(s, scope) {
+  const narrations = !scope && s.phase === "Débriefing" ? journal(s) : [];
+  return plenarySlides(s, scope, narrations);
+}
 function start(s, room, kind, options, seats, extra = {}) {
   let p = {
     id: randomUUID(),
@@ -200,7 +211,10 @@ function start(s, room, kind, options, seats, extra = {}) {
   };
   p.eligible = electorate(s, p).map((a) => a.id);
   s.polls.push(p);
-  if (kind === "plenary") s.plenarySlide = "duel-" + room;
+  if (kind === "plenary") {
+    s.plenarySlide = "duel-" + room;
+    delete s.plenaryTimer;
+  }
   else showRoomSlide(s.rooms[room], "poll-" + p.id, p.base);
   return p;
 }
@@ -287,19 +301,22 @@ export function act(s, a, x) {
   check(a.present, "Accès signalé absent");
   if (type === "presentSlide") {
     check(x.room ? r && controls(a, x.room) : chair(a));
-    const slides = plenarySlides(s, x.room);
+    const slides = slidesFor(s, x.room);
     const selected = slides.find((slide) => slide.id === x.slide);
     check(selected, "Cette diapositive n’est plus disponible.");
     const setTimer = Object.hasOwn(x, "minutes");
     check(
-      !setTimer || (x.room && selected.kind === "Débat"),
-      "Le minuteur accompagne un débat en commission.",
+      !setTimer || selected.kind === "Débat",
+      "Le minuteur accompagne une diapositive de débat.",
     );
     const until = setTimer ? deadline(x.minutes) : undefined;
     if (x.room) {
       showRoomSlide(r, selected.id, selected.measure);
       if (setTimer) r.until = until;
     } else {
+      if (s.plenaryTimer?.measure !== selected.measure) delete s.plenaryTimer;
+      if (setTimer)
+        s.plenaryTimer = { measure: selected.measure, until };
       s.plenarySlide = x.slide;
       s.showBalance = false;
       s.jt = -1;
@@ -338,6 +355,7 @@ export function act(s, a, x) {
       );
     s.phase = next;
     delete s.plenarySlide;
+    delete s.plenaryTimer;
     note(s, a, next);
     return;
   }
@@ -880,7 +898,8 @@ export function act(s, a, x) {
   if (type === "projectBalance") {
     check(chair(a) && s.phase === "Débriefing");
     s.showBalance = !!x.show;
-    if (x.show) s.plenarySlide = "plan-" + Object.keys(s.rooms)[0];
+    if (x.show) s.plenarySlide = "balance";
+    else if (s.plenarySlide?.startsWith("balance")) s.plenarySlide = "opening";
     s.jt = -1;
     return;
   }
@@ -894,6 +913,8 @@ export function act(s, a, x) {
     );
     s.jt = x.slide;
     s.showBalance = false;
+    if (x.slide >= 0) s.plenarySlide = "journal-" + x.slide;
+    else if (s.plenarySlide?.startsWith("journal-")) s.plenarySlide = "balance";
     return;
   }
   throw new Error("Commande inconnue");
@@ -1000,11 +1021,20 @@ const publicVersion = (v) => ({
   trends: v.trends,
 });
 export function view(s, a) {
+  ensureProjectionScreens(s);
   const desk = full(a),
     projection = a.role === "Projection",
     staff = chair(a),
     reporter = a.role === "Journaliste",
     pack = s.pack;
+  let projectionScope;
+  if (projection) {
+    if (a.room) projectionScope = "commission";
+    else if (a.id === plenaryScreenId(s)) projectionScope = "plenary";
+    else if (a.id === pressScreenId(s)) projectionScope = "press";
+    else projectionScope = "general";
+  }
+  const generalScreen = projectionScope === "general";
   const rooms = Object.fromEntries(
     Object.entries(s.rooms)
       .filter(([id]) => !projection || !a.room || id === a.room)
@@ -1067,6 +1097,7 @@ export function view(s, a) {
     context: pack.context,
     phase: s.phase,
     me: { id: a.id, role: a.role, group: a.group, room: a.room },
+    ...(projection ? { projectionScope } : {}),
     roomNames: pack.rooms,
     dimensions,
     rooms,
@@ -1123,11 +1154,11 @@ export function view(s, a) {
         front: v.front,
         ...v.public,
       })),
-    slide: s.jt >= 0 ? journal(s)[s.jt] : null,
+    slide: s.jt >= 0 && (!projection || generalScreen) ? journal(s)[s.jt] : null,
   };
   const stages = staff
     ? ["", ...Object.keys(rooms)]
-    : a.id === "ECR-PL"
+    : projectionScope === "plenary"
       ? [""]
       : (projection || a.role === "Modérateur") && a.room
         ? [a.room]
@@ -1135,7 +1166,7 @@ export function view(s, a) {
   if (stages.length) {
     result.presentations = {};
     for (const scope of stages) {
-      const slides = plenarySlides(s, scope),
+      const slides = slidesFor(s, scope),
         selected = currentSlide(s, slides, scope);
       const { openKind, ...publicSlide } = selected;
       const stage = {
@@ -1145,7 +1176,7 @@ export function view(s, a) {
       };
       if (!projection)
         stage.menu = slides.map(
-          ({ id, kind, room, title, part, measure, amendment, version }) => ({
+          ({ id, kind, room, title, part, measure, amendment, version, poll, status, openKind, journalIndex }) => ({
             id,
             kind,
             room,
@@ -1154,28 +1185,32 @@ export function view(s, a) {
             ...(measure ? { measure } : {}),
             ...(amendment ? { amendment } : {}),
             ...(version ? { version } : {}),
+            ...(poll ? { poll } : {}),
+            ...(status ? { status } : {}),
+            ...(openKind ? { openKind } : {}),
+            ...(journalIndex != null ? { journalIndex } : {}),
           }),
         );
       result.presentations[scope || "plenary"] = stage;
     }
   }
   if (projection) {
-    if (s.showBalance && !a.room) {
+    if (s.showBalance && generalScreen) {
       const { dimensions, initial, final, chosen } = balance(s);
       result.summary = { dimensions, initial, final, chosen };
     }
     return result;
   }
   if (a.present && (staff || a.role === "Modérateur")) {
-    const screenAccess = (room) => {
-      const id = "ECR-" + room;
-      return { id, key: token(s, id) };
-    };
-    if (staff)
+    const screenAccess = (id) => ({ id, key: token(s, id) });
+    if (staff) {
+      result.plenaryScreen = screenAccess(plenaryScreenId(s));
+      result.pressScreen = screenAccess(pressScreenId(s));
+      result.generalScreen = screenAccess(generalScreenId(s));
       result.roomScreens = Object.fromEntries(
-        Object.keys(rooms).map((id) => [id, screenAccess(id)]),
+        Object.keys(rooms).map((id) => [id, screenAccess("ECR-" + id)]),
       );
-    else result.roomScreen = screenAccess(a.room);
+    } else result.roomScreen = screenAccess("ECR-" + a.room);
   }
   result.composition = Object.entries(pack.rooms).map(([id, name]) => ({
     name,
@@ -1246,7 +1281,7 @@ export function view(s, a) {
       (m) => m.role === "Citoyen" && m.present,
     ).length;
     result.journal = journal(s);
-    result.jt = s.jt;
+    result.jt = result.presentations.plenary.current.journalIndex ?? s.jt;
     result.press = pack.media.map((name, i) => {
       let news = s.articles.filter((v) => v.group === "J" + i && v.public);
       return {

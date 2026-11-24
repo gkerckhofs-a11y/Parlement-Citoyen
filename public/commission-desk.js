@@ -1,3 +1,59 @@
+export function deskPreview(deck, roomName, measures, go, { h, para, banner }) {
+  const { current, menu, position, total } = deck;
+  const shownKind =
+    current.kind === "Débat" && current.amendment
+      ? "Débat sur l’amendement"
+      : current.kind;
+  const stageMoves = () =>
+    '<div class="desk-pager">' +
+    go("Précédente", menu[position - 2]?.id) +
+    "<span>" +
+    position +
+    " / " +
+    total +
+    "</span>" +
+    go("Suivante", menu[position]?.id, false) +
+    "</div>";
+  const image = current.image && measures.find((m) => m.id === current.image);
+  return (
+    '<section class="desk-live" aria-labelledby="desk-live-title">' +
+    '<div class="desk-live-heading"><h2 id="desk-live-title">À l’écran en salle</h2><span>' +
+    h(roomName) +
+    "</span></div>" +
+    '<div class="desk-preview">' +
+    (image ? banner(image) : "") +
+    '<div class="desk-preview-copy"><span class="desk-kind">' +
+    h([shownKind, current.measure].filter(Boolean).join(" · ")) +
+    (current.part ? " · " + h(current.part) : "") +
+    "</span><h3>" +
+    h(current.title) +
+    "</h3>" +
+    (current.body ? para(current.body) : "") +
+    (current.rows
+      ? "<ul>" +
+        current.rows
+          .map(
+            (row) =>
+              "<li><span>" +
+              h(row.title) +
+              (row.selected ? " · Retenu" : "") +
+              "</span>" +
+              "<strong>" +
+              h(row.score) +
+              "</strong></li>",
+          )
+          .join("") +
+        "</ul>"
+      : "") +
+    (current.turnout !== undefined
+      ? para(current.turnout + " votants · " + current.abstain + " abstentions")
+      : "") +
+    "</div></div>" +
+    stageMoves() +
+    "</section>"
+  );
+}
+
 // All commands here operate on the selected commission. The server owns its cursor and ballots.
 export function commissionDesk(v, scope, selectedMeasure, ui) {
   const {
@@ -15,11 +71,7 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
     polls,
   } = ui;
   const deck = v.presentations[scope];
-  const { current, menu, position, total } = deck;
-  const shownKind =
-    current.kind === "Débat" && current.amendment
-      ? "Débat sur l’amendement"
-      : current.kind;
+  const { current, menu } = deck;
   const room = v.rooms[scope];
   const roomName = v.roomNames[scope];
   const measures = v.measures.filter((m) => m.room === scope);
@@ -46,59 +98,6 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
     return id && menu.some((s) => s.id === id)
       ? btn(label, slideAction(id), secondary)
       : '<button type="button" disabled>' + h(label) + "</button>";
-  }
-  const stageMoves = () =>
-    '<div class="desk-pager">' +
-    go("Précédente", menu[position - 2]?.id) +
-    "<span>" +
-    position +
-    " / " +
-    total +
-    "</span>" +
-    go("Suivante", menu[position]?.id, false) +
-    "</div>";
-  function liveCard() {
-    const image =
-      current.image && v.measures.find((m) => m.id === current.image);
-    return (
-      '<section class="desk-live" aria-labelledby="desk-live-title">' +
-      '<div class="desk-live-heading"><h2 id="desk-live-title">À l’écran en salle</h2><span>' +
-      h(roomName) +
-      "</span></div>" +
-      '<div class="desk-preview">' +
-      (image ? banner(image) : "") +
-      '<div class="desk-preview-copy"><span class="desk-kind">' +
-      h([shownKind, current.measure].filter(Boolean).join(" · ")) +
-      (current.part ? " · " + h(current.part) : "") +
-      "</span><h3>" +
-      h(current.title) +
-      "</h3>" +
-      (current.body ? para(current.body) : "") +
-      (current.rows
-        ? "<ul>" +
-          current.rows
-            .map(
-              (row) =>
-                "<li><span>" +
-                h(row.title) +
-                (row.selected ? " · Retenu" : "") +
-                "</span>" +
-                "<strong>" +
-                h(row.score) +
-                "</strong></li>",
-            )
-            .join("") +
-          "</ul>"
-        : "") +
-      (current.turnout !== undefined
-        ? para(
-            current.turnout + " votants · " + current.abstain + " abstentions",
-          )
-        : "") +
-      "</div></div>" +
-      stageMoves() +
-      "</section>"
-    );
   }
   function ballotControls() {
     if (!active) return "";
@@ -296,10 +295,12 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
     "<div><span>Régie de commission</span><h1>" +
     h(roomName) +
     "</h1></div></div>" +
-    (screen ? deskLink(screen, "Ouvrir l’écran de projection") : "") +
+    (screen
+      ? deskLink({ ...screen, room: scope }, "Ouvrir l’écran de projection")
+      : "") +
     "</div>" +
     '<div class="desk-columns"><div>' +
-    liveCard() +
+    deskPreview(deck, roomName, v.measures, go, ui) +
     details("Ordre de projection", jump) +
     "</div><div>" +
     ballotControls() +

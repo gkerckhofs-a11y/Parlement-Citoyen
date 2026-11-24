@@ -1,3 +1,4 @@
+import { projectionLink, screenForScope } from "./projection-access.js";
 import { connect, bearer, logout, signedIn } from "./google.js?v=regie2";
 const main = document.querySelector("#main"),
   notice = document.querySelector("#feedback");
@@ -36,9 +37,23 @@ async function api(op, body = {}) {
 }
 async function enter(code) {
   const state = await api("view", { code, id: "REG" });
-  const { openGoogleDesk } = await import("./app.js?v=commission1");
   const url = new URL(location.href);
-  if (url.searchParams.get("session") !== code) url.searchParams.delete("commission");
+  const target =
+    url.searchParams.get("session") === code &&
+    url.searchParams.get("projection");
+  if (target) {
+    const screen = screenForScope(state, target);
+    const path = screen && projectionLink(code, screen);
+    if (!path)
+      throw Error("Cet écran de salle est indisponible dans cette session.");
+    location.replace(path);
+    return;
+  }
+  const { openGoogleDesk } = await import("./app.js?v=salle2");
+  if (url.searchParams.get("session") !== code) {
+    for (const name of ["commission", "projection", "regie"])
+      url.searchParams.delete(name);
+  }
   url.searchParams.set("session", code);
   history.replaceState(null, "", url);
   openGoogleDesk(code, state);
@@ -85,6 +100,7 @@ async function home() {
       return;
     } catch (e) {
       notice.textContent = e.message;
+      if (new URLSearchParams(location.search).has("projection")) return;
     }
   }
   const { sessions } = await api("admin-list");

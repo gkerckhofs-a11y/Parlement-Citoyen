@@ -1,7 +1,16 @@
-import { commissionDesk } from "./commission-desk.js";
+import { plenaryDesk } from "./plenary-desk.js?v=salle2";
+import {
+  projectionLink,
+  projectionRoute,
+  screenScope,
+} from "./projection-access.js";
+import { commissionDesk } from "./commission-desk.js?v=salle2";
 import { reportRows } from "./report.js";
 import { editor } from "./editor.js";
-import { commissionScreen } from "./commission-screen.js";
+import {
+  parliamentScreen,
+  projectionScope,
+} from "./commission-screen.js?v=salle2";
 const main = document.querySelector("#main"),
   feedback = document.querySelector("#feedback"),
   sessionLabel = document.querySelector("#session");
@@ -69,7 +78,14 @@ const table = (heads, rows) =>
     )
     .join("") +
   "</tbody></table></div>";
-let auth = JSON.parse(sessionStorage.getItem("pc.auth") || "null"),
+const projectorPage = document.body.hasAttribute("data-projector-page");
+const targetWall = projectorPage && projectionRoute(location.pathname);
+const wallKey = targetWall
+  ? "pc.wall." + targetWall.code + "." + targetWall.scope
+  : "";
+let auth = projectorPage
+    ? null
+    : JSON.parse(sessionStorage.getItem("pc.auth") || "null"),
   v = null,
   tab =
     auth?.google || ["REG", "PRE"].includes(auth?.id) ? "Régie" : "Assemblée",
@@ -80,10 +96,44 @@ let auth = JSON.parse(sessionStorage.getItem("pc.auth") || "null"),
   last = "",
   noticeTimer;
 const hash = new URLSearchParams(location.hash.slice(1));
-if (hash.has("key")) {
+if (projectorPage) {
+  if (targetWall) {
+    const key = hash.get("key"),
+      id = hash.get("id");
+    if (key && (id === "ECR" || /^ECR-[A-Z0-9-]+$/.test(id))) {
+      auth = { code: targetWall.code, id, key };
+      sessionStorage.setItem(wallKey, JSON.stringify(auth));
+    } else {
+      try {
+        auth = JSON.parse(sessionStorage.getItem(wallKey) || "null");
+      } catch {
+        auth = null;
+      }
+    }
+    if (location.hash) history.replaceState(null, "", location.pathname);
+  }
+} else if (hash.has("key")) {
   auth = { code: hash.get("code"), id: hash.get("id"), key: hash.get("key") };
-  sessionStorage.setItem("pc.auth", JSON.stringify(auth));
+  if (auth.id !== "ECR" && !auth.id?.startsWith("ECR-"))
+    sessionStorage.setItem("pc.auth", JSON.stringify(auth));
   history.replaceState(null, "", location.pathname);
+}
+
+function offerWallAccess(message) {
+  main.className = "portal";
+  main.innerHTML =
+    "<h1>Écran de projection</h1>" +
+    para(message) +
+    (targetWall
+      ? '<a class="desk-link" href="/admin?' +
+        h(
+          new URLSearchParams({
+            session: targetWall.code,
+            projection: targetWall.scope,
+          }).toString(),
+        ) +
+        '">Activer cet écran avec le compte organisateur</a>'
+      : '<a href="/admin">Ouvrir la régie</a>');
 }
 function say(t) {
   feedback.textContent = t;
@@ -576,30 +626,23 @@ function pressScreen() {
   });
   const n = pages[pressIndex % (pages.length || 1)];
   if (!pressDeadline) pressDeadline = Date.now() + 15000;
-  return (
-    '<section class="press-screen"><p class="press-kicker">Journal du Parlement</p>' +
-    (n
-      ? "<article>" +
-        tag(n.media) +
-        (n.front ? " " + tag("À la Une") : "") +
-        "<h1>" +
-        h(n.title) +
-        "</h1>" +
-        picture(n) +
-        para(n.text) +
-        (n.page ? tag(n.page) : "") +
-        (n.sources ? para(n.sources) : "") +
-        "</article>"
-      : section(
-          "En direct du Parlement",
-          para("Les rédactions préparent leurs premières éditions."),
-        )) +
-    "</section>"
-  );
+  return stageScreen({
+    current: {
+      kind: n
+        ? [n.media, n.front && "À la une"].filter(Boolean).join(" · ")
+        : "En direct",
+      title: n?.title || "Les premières éditions",
+      body: n?.text || "Les rédactions préparent leurs articles.",
+      part: n?.page,
+      sources: n?.sources,
+      pressImage: n ? picture(n) : "",
+    },
+  });
 }
 setInterval(() => {
   if (
-    v?.me.id === "ECR-NEWS" &&
+    v?.me.role === "Projection" &&
+    projectionScope(v) === "press" &&
     v.news.length > 0 &&
     Date.now() >= pressDeadline
   ) {
@@ -1036,28 +1079,21 @@ const deskLink = (a, label) =>
   "</a>";
 
 function projectionPanel() {
-  if (!v.roster) return "";
+  if (!chair()) return "";
   const screens = [
-    ...Object.keys(v.rooms).map((room) => "ECR-" + room),
-    "ECR-PL",
-    "ECR-NEWS",
+    [v.generalScreen, "Écran général"],
+    ...Object.entries(v.roomScreens || {}).map(([room, access]) => [
+      { ...access, room },
+      v.roomNames[room],
+    ]),
+    [v.plenaryScreen, "Plénière"],
+    [v.pressScreen, "Actualités des rédactions"],
   ];
   return (
-    '<section class="access-panel projection-panel" aria-labelledby="projection-title"><h2 id="projection-title" tabindex="-1">Afficher en salle</h2><p>Choisissez l’écran à ouvrir sur le projecteur.</p><div>' +
+    '<section class="access-panel projection-panel" aria-labelledby="projection-title"><h2 id="projection-title" tabindex="-1">Afficher en salle</h2><p>Ouvrez la page publique sur le projecteur.</p><div>' +
     screens
-      .map((id) => {
-        const a = v.roster.find((a) => a.id === id);
-        return a
-          ? deskLink(
-              a,
-              a.room
-                ? "Commission · " + v.roomNames[a.room]
-                : id === "ECR-PL"
-                  ? "Plénière"
-                  : "Actualités des rédactions",
-            )
-          : "";
-      })
+      .filter(([access]) => access)
+      .map(([access, label]) => deskLink(access, label))
       .join("") +
     "</div></section>"
   );
@@ -1089,8 +1125,21 @@ function accessPanels() {
 }
 let observingAsModerator = false;
 const preparedMeasures = new Map();
-function changeDesk(scope) {
+let preparedDuel = "";
+let presidencyHome = false;
+function plenaryRequested() {
+  if (!chair()) return false;
+  const q = new URLSearchParams(location.search);
+  return (
+    q.get("regie") === "pleniere" ||
+    (role() === "Présidence" && !presidencyHome && !q.has("commission"))
+  );
+}
+function changeDesk(scope, plenary = false) {
   const url = new URL(location.href);
+  presidencyHome = !plenary && !scope;
+  if (plenary) url.searchParams.set("regie", "pleniere");
+  else url.searchParams.delete("regie");
   if (scope) url.searchParams.set("commission", scope);
   else url.searchParams.delete("commission");
   if (url.href !== location.href) history.pushState(null, "", url);
@@ -1140,90 +1189,13 @@ function deskDirectory() {
   );
 }
 
-function slideDesk(scope) {
-  const deck = v.presentations?.[scope || "plenary"];
-  if (!deck?.menu) return "";
-  const { current: c, menu, position, total } = deck;
-  const go = (label, index) =>
-    menu[index]
-      ? btn(label, { type: "presentSlide", room: scope, slide: menu[index].id })
-      : "<button disabled>" + label + "</button>";
-  const opener =
-    c.openKind ||
-    (c.ballot && !c.poll && !scope && v.phase === "Plénière" ? "plenary" : "");
-  let commands = opener
-    ? btn("Ouvrir le vote", {
-        type: "open",
-        room: c.room,
-        kind: opener,
-        ...(c.measure ? { measure: c.measure } : {}),
-      })
-    : "";
-  if (c.poll) {
-    const p = v.polls.find((p) => p.id === c.poll);
-    const action = {
-      ouvert: ["close", "Clore le vote"],
-      clos: ["announce", "Annoncer le résultat"],
-      égalité: p?.round
-        ? ["draw", "Tirer au sort"]
-        : ["tie", "Ouvrir le départage"],
-      incident: ["restart", "Relancer le scrutin"],
-      suspendu: ["resume", "Reprendre le scrutin"],
-    }[p?.status];
-    if (action && (p.kind !== "plenary" || chair()))
-      commands += btn(action[1], {
-        type: action[0],
-        poll: p.id,
-        reasonRequired: ["draw", "restart", "resume"].includes(action[0]),
-      });
-  }
-  const nextPhase = {
-    Préparation: "Ouvrir les commissions",
-    Commissions: "Passer en plénière",
-    Plénière: "Passer au débriefing",
-  }[v.phase];
-  if (!scope && nextPhase) commands += btn(nextPhase, { type: "phase" }, true);
-  return (
-    '<section class="slide-desk"><h3>Piloter la projection</h3>' +
-    "<p><strong>À l’écran · " +
-    position +
-    " / " +
-    total +
-    "</strong><br>" +
-    h(c.kind + " · " + c.title) +
-    '</p><div class="actions">' +
-    go("← Précédente", position - 2) +
-    go("Suivante →", position) +
-    '</div><label>Aller à une diapositive<select data-stage-slide data-scope="' +
-    h(scope) +
-    '">' +
-    menu
-      .map(
-        (item, i) =>
-          '<option value="' +
-          h(item.id) +
-          '" ' +
-          (item.id === c.id ? "selected" : "") +
-          ">" +
-          h(
-            i +
-              1 +
-              ". " +
-              (v.roomNames[item.room] ? v.roomNames[item.room] + " · " : "") +
-              item.kind +
-              " · " +
-              item.title +
-              (item.part ? " · " + item.part : ""),
-          ) +
-          "</option>",
-      )
-      .join("") +
-    '</select></label><div class="actions">' +
-    commands +
-    "</div></section>"
-  );
-}
 main.addEventListener("change", (e) => {
+  if (e.target.matches("[data-plenary-room]") && plenaryRequested()) {
+    preparedDuel = e.target.value;
+    render();
+    main.querySelector("[data-plenary-room]")?.focus();
+    return;
+  }
   if (e.target.matches("[data-desk-measure]")) {
     const scope = openDeskScope();
     if (!scope) return;
@@ -1239,90 +1211,64 @@ main.addEventListener("change", (e) => {
     });
 });
 function stageScreen(deck) {
-  if (v.me.room) {
-    const slide = deck?.current;
-    const measure =
-      slide?.image && v.measures.find((m) => m.id === slide.image);
-    return commissionScreen(slide, v.roomNames[v.me.room], {
-      h,
-      mark: roomMark(v.me.room),
-      image: banner(measure),
-      effect,
-      icon,
-      indicators,
-    });
-  }
-  const c =
-    !v.me.room && v.slide
-      ? { kind: "Journal 2040", title: "Le journal du futur", body: v.slide }
-      : deck.current;
-  const m = c.image && v.measures.find((m) => m.id === c.image);
-  return (
-    '<section class="stage-frame"><article class="stage-card"><div class="stage-text"><div class="stage-caption">' +
-    h([v.roomNames[c.room], c.kind, c.part].filter(Boolean).join(" · ")) +
-    "</div><h1>" +
-    h(c.title) +
-    "</h1>" +
-    (c.body ? para(c.body) : "") +
-    (c.rows
-      ? "<ul>" +
-        c.rows
-          .map(
-            (o) =>
-              '<li class="' +
-              (o.selected ? "stage-winner" : "") +
-              '"><span>' +
-              h(o.title) +
-              (o.selected ? " · Retenu" : "") +
-              "</span><b>" +
-              h(o.score) +
-              "</b></li>",
-          )
-          .join("") +
-        "</ul>"
-      : "") +
-    (c.turnout !== undefined
-      ? "<small>" +
-        h(c.turnout + " votants · " + c.abstain + " abstentions") +
-        "</small>"
-      : "") +
-    "</div>" +
-    (m ? banner(m) : "") +
-    "</article></section>"
-  );
+  return parliamentScreen(v, deck, {
+    h,
+    roomMark,
+    banner,
+    effect,
+    icon,
+    indicators,
+  });
 }
 function fitStage() {
-  const card = main.querySelector(".stage-card"),
-    text = card?.querySelector(".stage-text");
-  if (!text) return;
-  let low = 1,
-    high = card.classList.contains("commission-card")
-      ? Math.min(
-          60,
-          Math.max(20, innerWidth / 30),
-          Math.max(20, innerHeight / 16),
-        )
-      : Math.min(48, Math.max(20, innerWidth / 42));
-  for (let i = 0; i < 10; i++) {
-    const mid = (low + high) / 2;
-    text.style.fontSize = mid + "px";
-    if (
-      text.scrollHeight <= text.clientHeight + 1 &&
-      text.scrollWidth <= text.clientWidth + 1
-    )
-      low = mid;
-    else high = mid;
+  const panels = main.querySelectorAll("[data-fit-panel]");
+  for (const panel of panels) {
+    if (!panel.clientWidth || !panel.clientHeight) continue;
+    const panelRect = panel.getBoundingClientRect();
+    const style = getComputedStyle(panel);
+    const top = panelRect.top + parseFloat(style.paddingTop);
+    const bottom = panelRect.bottom - parseFloat(style.paddingBottom);
+    const isStats = panel.classList.contains("scene-statistics");
+    let low = 1;
+    let high = Math.min(isStats ? 50 : 64,
+      Math.max(17, panel.clientWidth / (isStats ? 19 : 15)),
+      Math.max(18, innerHeight / 13));
+    for (let i = 0; i < 12; i++) {
+      const mid = (low + high) / 2;
+      panel.style.fontSize = mid + "px";
+      const fits = panel.scrollWidth <= panel.clientWidth &&
+        panel.firstElementChild.getBoundingClientRect().top >= top - .25 &&
+        panel.lastElementChild.getBoundingClientRect().bottom <= bottom + .25;
+      if (fits) low = mid;
+      else high = mid;
+    }
+    panel.style.fontSize = low + "px";
   }
-  text.style.fontSize = low + "px";
 }
 window.addEventListener("resize", fitStage);
 document.fonts.ready.then(fitStage);
+document.fonts.addEventListener("loadingdone", fitStage);
+main.addEventListener(
+  "load",
+  (event) => {
+    if (
+      event.target instanceof HTMLImageElement &&
+      main.classList.contains("scene-projector")
+    )
+      fitStage();
+  },
+  true,
+);
 
 function admin() {
   let out =
+    '<section class="desk-plenary-entry"><h2>Plénière</h2><div class="actions"><button type="button" data-desk-plenary>Piloter la plénière</button>' +
+    (v.plenaryScreen
+      ? deskLink(v.plenaryScreen, "Ouvrir l’écran de plénière")
+      : "") +
+    "</div></section>" +
     deskDirectory() +
     projectionPanel() +
-    details("Piloter la plénière", slideDesk("")) +
     accessPanels() +
     (v.phase !== "Débriefing"
       ? btn(
@@ -1717,26 +1663,48 @@ function render() {
   main.className = role() === "Projection" ? "projector" : "session-view";
   sessionLabel.textContent = v.code + " · " + v.me.role;
   if (role() === "Projection") {
-    sessionLabel.textContent = v.me.room
-      ? v.roomNames[v.me.room]
-      : v.me.id === "ECR-NEWS"
-        ? "Actualités"
-        : v.me.id === "ECR-PL"
-          ? "Plénière"
-          : "Parlement";
-    const deck = v.presentations?.[v.me.room || "plenary"];
-    if (deck || v.me.room) main.classList.add("stage");
+    const screen = projectionScope(v);
+    sessionLabel.textContent =
+      screen === "commission"
+        ? v.roomNames[v.me.room]
+        : { press: "Actualités", plenary: "Plénière", general: "Parlement" }[
+            screen
+          ];
+    const deck =
+      screen === "commission"
+        ? v.presentations?.[v.me.room]
+        : screen === "plenary"
+          ? v.presentations?.plenary
+          : null;
+    document.documentElement.classList.add("projecting-parliament");
+    document.body.classList.add("projecting-parliament");
+    main.classList.add("stage", "scene-projector");
     if (v.me.room) main.classList.add("commission-stage");
     main.innerHTML =
       '<div class="projection-tools"><button type="button" data-fullscreen>Plein écran</button></div>' +
-      (deck || v.me.room
-        ? stageScreen(deck)
-        : v.me.id === "ECR-NEWS"
-          ? pressScreen()
-          : assembly());
-    if (deck || v.me.room) fitStage();
+      (screen === "press" ? pressScreen() : stageScreen(deck));
+    fitStage();
     updateFullButton();
     loadPhotos();
+    return;
+  }
+  document.documentElement.classList.remove("projecting-parliament");
+  document.body.classList.remove("projecting-parliament");
+  if (plenaryRequested() && v.presentations?.plenary?.menu) {
+    sessionLabel.textContent = "Présidence · Régie";
+    main.innerHTML = plenaryDesk(v, preparedDuel, {
+      h,
+      btn,
+      form,
+      para,
+      details,
+      roomMark,
+      deskLink,
+      pollLabel,
+      name,
+      banner,
+      icon,
+    });
     return;
   }
   const scope = openDeskScope();
@@ -1853,6 +1821,22 @@ async function refresh(force = false) {
   let current = auth,
     next = await call("view", current);
   if (current !== auth) return;
+  if (
+    projectorPage &&
+    (next.me?.role !== "Projection" ||
+      next.code !== targetWall?.code ||
+      screenScope(next.me) !== targetWall.scope)
+  )
+    throw Error(
+      "Cet accès correspond à une autre salle. Ouvrez le lien du projecteur depuis sa régie.",
+    );
+  if (!projectorPage && next.me?.role === "Projection") {
+    const path = projectionLink(next.code, { ...next.me, key: auth.key });
+    if (path) {
+      location.replace(path);
+      return;
+    }
+  }
   let json = JSON.stringify(next);
   if (
     !force &&
@@ -1898,6 +1882,10 @@ function csv(rows) {
   );
 }
 function link(a) {
+  if (a.role === "Projection" || a.id === "ECR" || a.id.startsWith("ECR-")) {
+    const wall = projectionLink(v.code, a);
+    if (wall) return location.origin + wall;
+  }
   if (a.id === "REG" && auth?.google)
     return location.origin + "/admin?session=" + encodeURIComponent(v.code);
   return (
@@ -1920,6 +1908,7 @@ async function run(x) {
       preparedMeasures.clear();
       const url = new URL(location.href);
       url.searchParams.delete("commission");
+      url.searchParams.delete("regie");
       history.replaceState(null, "", url);
       const wasGoogle = auth?.google;
       auth = null;
@@ -1944,7 +1933,8 @@ async function run(x) {
           : await call("create", x);
       await call("view", next);
       auth = next;
-      sessionStorage.setItem("pc.auth", JSON.stringify(auth));
+      if (auth.id !== "ECR" && !auth.id?.startsWith("ECR-"))
+        sessionStorage.setItem("pc.auth", JSON.stringify(auth));
       observingAsModerator = false;
       tab =
         x.ui === "create" || ["REG", "PRE"].includes(next.id)
@@ -2044,6 +2034,19 @@ main.addEventListener("click", (e) => {
   }
   let b = e.target.closest("button");
   if (!b) return;
+  if (
+    b.dataset.nextDuel &&
+    plenaryRequested() &&
+    Object.hasOwn(v.rooms, b.dataset.nextDuel)
+  ) {
+    preparedDuel = b.dataset.nextDuel;
+    run({ type: "presentSlide", room: "", slide: "compare-" + preparedDuel });
+    return;
+  }
+  if (b.hasAttribute("data-desk-plenary")) {
+    changeDesk("", true);
+    return;
+  }
   if (b.hasAttribute("data-desk-home")) {
     changeDesk("");
     return;
@@ -2164,7 +2167,21 @@ export function openGoogleDesk(code, state) {
   last = JSON.stringify(state);
   render();
 }
-if (location.pathname !== "/admin" && location.pathname !== "/admin.html") {
+if (projectorPage) {
+  if (auth) refresh(true).catch((error) => offerWallAccess(error.message));
+  else if (targetWall) {
+    location.replace(
+      "/admin?" +
+        new URLSearchParams({
+          session: targetWall.code,
+          projection: targetWall.scope,
+        }),
+    );
+  } else offerWallAccess("Adresse d’écran inconnue.");
+} else if (
+  location.pathname !== "/admin" &&
+  location.pathname !== "/admin.html"
+) {
   if (auth?.google)
     location.replace("/admin?session=" + encodeURIComponent(auth.code));
   else if (auth)

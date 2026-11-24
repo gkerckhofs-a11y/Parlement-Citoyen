@@ -4,7 +4,7 @@ import {
   view,
   act,
   token,
-  ensurePressScreen,
+  ensureProjectionScreens,
 } from "./engine.mjs";
 import { demo, check } from "./scenario.mjs";
 import { timingSafeEqual, createHash, createHmac } from "node:crypto";
@@ -70,7 +70,7 @@ export function api(store, adminKey, google) {
           googleAccess = true;
         }
         const handle = (s, savePicture) => {
-          ensurePressScreen(s);
+          ensureProjectionScreens(s);
           check(
             id !== "REG" || !s.googleAdmin || googleAccess,
             "Connexion Google requise.",

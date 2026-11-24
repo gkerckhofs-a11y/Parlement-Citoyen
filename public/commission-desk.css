@@ -206,3 +206,17 @@
 .desk-amendments button {
   margin: 0 0.4rem 0.4rem 0;
 }
+
+.desk-plenary-entry .actions {
+  align-items: center;
+}
+.plenary-finalist {
+  border-top: 1px solid var(--rule);
+  padding-block: 0.65rem;
+}
+.plenary-finalist h3 {
+  margin: 0.35rem 0;
+}
+.plenary-finalist .actions {
+  margin: 0.55rem 0;
+}

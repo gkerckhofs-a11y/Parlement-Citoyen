@@ -53,7 +53,11 @@ jobs:
         with:
           workload_identity_provider: projects/1055602103191/locations/global/workloadIdentityPools/parlement-github/providers/github
           service_account: publication-firebase@parlement-citoyen.iam.gserviceaccount.com
-      - run: npx --yes firebase-tools@14.27.0 deploy --project parlement-citoyen --only functions,firestore:rules,hosting --non-interactive
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Mettre à jour la fonction de deuxième génération
+        run: |
+          gcloud functions deploy parliament --gen2 --project=parlement-citoyen --region=europe-west1 --runtime=nodejs22 --entry-point=parliament --trigger-http --source=functions --quiet
+      - run: npx --yes firebase-tools@14.27.0 deploy --project parlement-citoyen --only firestore:rules,hosting --non-interactive
       - name: Vérifier le site et son API
         run: |
           curl -fsS https://parlement-citoyen.web.app/ -o /tmp/parlement.html

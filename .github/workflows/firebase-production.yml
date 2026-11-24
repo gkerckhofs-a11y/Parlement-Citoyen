@@ -1,0 +1,35 @@
+name: Publication Firebase
+on:
+  workflow_dispatch:
+  push:
+    tags: ['publication-*']
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: parlement-firebase-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Vérifier la provenance de la version
+        run: git merge-base --is-ancestor HEAD origin/main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix functions && npm test
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1055602103191/locations/global/workloadIdentityPools/parlement-github/providers/github
+          service_account: publication-firebase@parlement-citoyen.iam.gserviceaccount.com
+      - run: npx --yes firebase-tools@14.27.0 deploy --project parlement-citoyen --only functions,firestore:rules,hosting --non-interactive
+      - name: Vérifier le site et son API
+        run: |
+          curl -fsS https://parlement-citoyen.web.app/ -o /tmp/parlement.html
+          grep -q 'Parlement citoyen' /tmp/parlement.html
+          curl -sS -H 'Content-Type: application/json' --data '{}' https://parlement-citoyen.web.app/api/view -o /tmp/parlement-api.json
+          node -e "if (!require('/tmp/parlement-api.json').error) process.exit(1)"

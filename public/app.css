@@ -1,0 +1,249 @@
+:root {
+  font:
+    16px/1.5 system-ui,
+    sans-serif;
+  color: #193a34;
+  background: #f4f2e9;
+  --ink: #163e37;
+  --rule: #bdc6b6;
+  --gold: #e5b55e;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  background: var(--ink);
+  color: #fff;
+  padding: 0.85rem 5vw;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+header strong {
+  font: 600 1.3rem Georgia;
+}
+#session {
+  margin-left: auto;
+  font-size: 0.85rem;
+}
+.seal {
+  color: var(--gold);
+  font-size: 2rem;
+}
+main {
+  max-width: 1180px;
+  margin: auto;
+  padding: 2rem 4vw 6rem;
+}
+h1,
+h2,
+h3 {
+  font-family: Georgia, serif;
+  line-height: 1.13;
+}
+h1 {
+  font-size: clamp(2.4rem, 5vw, 4.7rem);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  margin: 0.4em 0;
+}
+h2 {
+  font-size: 1.8rem;
+}
+h3 {
+  font-size: 1.23rem;
+}
+p {
+  max-width: 75ch;
+  white-space: pre-line;
+}
+.lead {
+  border-block: 1px solid var(--rule);
+  padding: 1.5rem 0;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+article,
+fieldset,
+.box {
+  background: #fffcf4;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin: 1rem 0;
+}
+article h3 {
+  margin-top: 0;
+}
+nav,
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+button,
+select,
+input,
+textarea {
+  font: inherit;
+}
+button {
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  color: white;
+  border-radius: 4px;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+}
+button.secondary,
+nav button {
+  background: transparent;
+  color: var(--ink);
+}
+nav button[aria-current="true"] {
+  background: var(--ink);
+  color: white;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+input,
+select,
+textarea {
+  max-width: 100%;
+  width: 100%;
+  padding: 0.55rem;
+  border: 1px solid #849489;
+  border-radius: 3px;
+  background: white;
+}
+textarea {
+  min-height: 6rem;
+}
+label {
+  display: block;
+  margin: 0.65rem 0;
+}
+input[type="checkbox"] {
+  width: auto;
+  margin-right: 0.5rem;
+}
+summary {
+  cursor: pointer;
+  font-weight: 650;
+  padding: 0.6rem 0;
+}
+small,
+.meta {
+  color: #4b6259;
+}
+.tag {
+  display: inline-block;
+  background: #e8e4d1;
+  padding: 0.12rem 0.45rem;
+  border-radius: 3px;
+  font-size: 0.82rem;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.45rem;
+  border-bottom: 1px solid var(--rule);
+}
+.scroll {
+  overflow: auto;
+}
+#feedback:not(:empty) {
+  position: fixed;
+  bottom: 0.5rem;
+  left: 4vw;
+  background: #142f2b;
+  color: white;
+  padding: 0.7rem 1rem;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px #0003;
+}
+.screen {
+  font-size: clamp(1.25rem, 2.4vw, 2.8rem);
+}
+.screen h2 {
+  font-size: 1.6em;
+}
+.screen article {
+  margin: 0.5em 0;
+}
+.desk {
+  max-width: 720px;
+}
+.intro {
+  background: var(--ink);
+  color: white;
+  border-top: 5px solid var(--gold);
+  padding: 2rem clamp(1.2rem, 4vw, 4rem);
+  margin-bottom: 1.7rem;
+}
+.intro p {
+  color: #e4e9de;
+}
+details + details {
+  border-top: 1px solid var(--rule);
+}
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #bd7821;
+  outline-offset: 3px;
+}
+@media print {
+  header,
+  nav,
+  button,
+  form,
+  #feedback,
+  .noprint {
+    display: none !important;
+  }
+  main {
+    max-width: none;
+    padding: 0;
+  }
+  article {
+    break-inside: avoid;
+  }
+  body {
+    background: white;
+  }
+}
+#teacher-report {
+  display: none;
+}
+@media print {
+  body:has(#teacher-report) > :not(#teacher-report) {
+    display: none !important;
+  }
+  #teacher-report {
+    display: block;
+    color: #111;
+    font-size: 10pt;
+  }
+  #teacher-report tr {
+    break-inside: avoid;
+  }
+  #teacher-report thead {
+    display: table-header-group;
+  }
+}

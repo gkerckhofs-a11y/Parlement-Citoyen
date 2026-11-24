@@ -1,0 +1,9 @@
+{
+  "name": "parlement-citoyen",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node functions/local.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

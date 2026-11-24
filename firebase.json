@@ -1,0 +1,14 @@
+{
+  "functions": { "source": "functions", "runtime": "nodejs22" },
+  "hosting": {
+    "public": "public",
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "function": { "functionId": "parliament", "region": "europe-west1" }
+      },
+      { "source": "**", "destination": "/index.html" }
+    ]
+  },
+  "firestore": { "rules": "firestore.rules" }
+}

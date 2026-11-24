@@ -1046,32 +1046,43 @@ function newsroom() {
       .join("")
   );
 }
+const deskLink = (a, label) =>
+  '<a class="desk-link" target="_blank" rel="noopener noreferrer" href="' +
+  h(link(a)) +
+  '">' +
+  h(label) +
+  "</a>";
+
+function projectionPanel() {
+  if (!v.roster) return "";
+  const screens = [
+    ...Object.keys(v.rooms).map((room) => "ECR-" + room),
+    "ECR-PL",
+    "ECR-NEWS",
+  ];
+  return (
+    '<section class="access-panel projection-panel" aria-labelledby="projection-title"><h2 id="projection-title" tabindex="-1">Afficher en salle</h2><p>Choisissez l’écran à ouvrir sur le projecteur.</p><div>' +
+    screens
+      .map((id) => {
+        const a = v.roster.find((a) => a.id === id);
+        return a
+          ? deskLink(
+              a,
+              a.room
+                ? "Commission · " + v.roomNames[a.room]
+                : id === "ECR-PL"
+                  ? "Plénière"
+                  : "Actualités des rédactions",
+            )
+          : "";
+      })
+      .join("") +
+    "</div></section>"
+  );
+}
 function accessPanels() {
   if (!v.roster) return "";
-  const anchor = (a, label) =>
-    '<a class="desk-link" target="_blank" rel="noopener noreferrer" href="' +
-    h(link(a)) +
-    '">' +
-    h(label) +
-    "</a>";
-  const projectors = v.roster.filter(
-    (a) => a.role === "Projection" && a.id !== "ECR",
-  );
-  let html =
-    '<section class="access-panel"><h3>Écrans de projection</h3><div>' +
-    projectors
-      .map((a) =>
-        anchor(
-          a,
-          a.room
-            ? v.roomNames[a.room]
-            : a.id === "ECR-PL"
-              ? "Plénière"
-              : "Actualités des rédactions",
-        ),
-      )
-      .join("") +
-    "</div></section>";
+  let html = "";
   if (["AC20360001", "AC20360002", "AC20360003"].includes(v.code)) {
     const roles = {
       Citoyen: "Citoyen",
@@ -1087,7 +1098,7 @@ function accessPanels() {
       Object.entries(roles)
         .map(([role, label]) => {
           const a = v.roster.find((a) => a.role === role);
-          return a ? anchor(a, label) : "";
+          return a ? deskLink(a, label) : "";
         })
         .join("") +
       "</div></section>";
@@ -1480,6 +1491,37 @@ function bilan() {
       .join("")
   );
 }
+function fullElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement;
+}
+function updateFullButton() {
+  const button = main.querySelector("[data-fullscreen]");
+  if (button) {
+    button.textContent = fullElement()
+      ? "Quitter le plein écran"
+      : "Plein écran";
+    button.setAttribute("aria-pressed", String(Boolean(fullElement())));
+  }
+}
+document.addEventListener("fullscreenchange", updateFullButton);
+document.addEventListener("webkitfullscreenchange", updateFullButton);
+main.addEventListener("click", async (e) => {
+  if (!e.target.closest("[data-fullscreen]")) return;
+  const root = document.documentElement;
+  try {
+    if (fullElement())
+      await (document.exitFullscreen || document.webkitExitFullscreen).call(
+        document,
+      );
+    else
+      await (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+    updateFullButton();
+  } catch {
+    say(
+      "Le navigateur ne permet pas ce passage en plein écran. Utilisez son menu d’affichage.",
+    );
+  }
+});
 function render() {
   main.className = role() === "Projection" ? "projector" : "session-view";
   sessionLabel.textContent = v.code + " · " + v.me.role;
@@ -1491,7 +1533,10 @@ function render() {
         : v.me.id === "ECR-PL"
           ? "Plénière"
           : "Parlement";
-    main.innerHTML = v.me.id === "ECR-NEWS" ? pressScreen() : assembly();
+    main.innerHTML =
+      '<div class="projection-tools"><button type="button" data-fullscreen>Plein écran</button></div>' +
+      (v.me.id === "ECR-NEWS" ? pressScreen() : assembly());
+    updateFullButton();
     loadPhotos();
     return;
   }
@@ -1506,6 +1551,7 @@ function render() {
   if (v.balance) tabs.push("Débriefing");
   if (!tabs.includes(tab)) tab = tabs[0];
   main.innerHTML =
+    projectionPanel() +
     '<div class="lead">' +
     tag(v.phase === "Préparation" ? "Préparation en classe" : v.phase) +
     " " +

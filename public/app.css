@@ -678,7 +678,7 @@ th {
 .measure-banner {
   display: block;
   width: 100%;
-  height: clamp(74px, 11vw, 155px);
+  height: clamp(155px, 23vw, 330px);
   object-fit: cover;
   object-position: center 42%;
   border-radius: 4px;
@@ -729,10 +729,53 @@ th {
   white-space: pre-line;
 }
 .press-screen .press-photo {
-  max-height: 36vh;
+  max-height: 46vh;
 }
 .press-kicker {
   border-bottom: 2px solid;
   font-weight: 650;
   letter-spacing: 0.04em;
+}
+
+.projection-panel {
+  background: var(--ink);
+  color: var(--paper);
+  padding: clamp(1rem, 2vw, 1.7rem);
+  border-radius: 8px;
+  margin: 0 0 1.4rem;
+}
+.projection-panel h2,
+.projection-panel p {
+  color: inherit;
+  margin: 0 0 0.6rem;
+}
+.projection-panel .desk-link {
+  color: var(--ink);
+  background: var(--paper);
+}
+.projection-panel .desk-link:hover,
+.projection-panel .desk-link:focus-visible {
+  background: #dce7eb;
+  text-decoration: underline;
+}
+.session-card button + button {
+  margin: 0.4rem;
+}
+.projection-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.6rem;
+}
+:fullscreen .projection-tools,
+:-webkit-full-screen .projection-tools {
+  position: fixed;
+  right: 0.7rem;
+  top: 0.7rem;
+  z-index: 5;
+}
+:fullscreen .projection-tools:not(:hover):not(:focus-within) {
+  opacity: 0.22;
+}
+:fullscreen body {
+  background: var(--paper);
 }

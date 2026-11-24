@@ -36,7 +36,7 @@ async function api(op, body = {}) {
 }
 async function enter(code) {
   const state = await api("view", { code, id: "REG" });
-  const { openGoogleDesk } = await import("./app.js?v=presse2");
+  const { openGoogleDesk } = await import("./app.js?v=salle3");
   openGoogleDesk(code, state);
   history.replaceState(null, "", "/admin?session=" + encodeURIComponent(code));
   notice.textContent = "";
@@ -102,11 +102,22 @@ async function home() {
       card.className = "session-card";
       card.append(
         el("small", s.code),
-        el("h3", scenarios[s.code] ? s.title.split(" · ")[1] || s.title : s.title),
+        el(
+          "h3",
+          scenarios[s.code] ? s.title.split(" · ")[1] || s.title : s.title,
+        ),
       );
       card.append(el("small", "Phase actuelle · " + s.phase));
       if (scenarios[s.code]) card.append(el("p", scenarios[s.code]));
-      card.append(button("Ouvrir la régie", () => enter(s.code)));
+      card.append(
+        button("Ouvrir la régie", () => enter(s.code)),
+        button("Afficher en salle", async () => {
+          await enter(s.code);
+          const title = document.getElementById("projection-title");
+          title?.focus();
+          title?.scrollIntoView({ block: "start" });
+        }),
+      );
       grid.append(card);
     }
   }

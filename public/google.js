@@ -10,9 +10,7 @@ import {
 const response = await fetch("/__/firebase/init.json");
 if (!response.ok) throw Error("La configuration Firebase est indisponible.");
 const config = await response.json();
-const auth = getAuth(
-  initializeApp({ ...config, authDomain: location.hostname }),
-);
+const auth = getAuth(initializeApp(config));
 await setPersistence(auth, browserSessionPersistence);
 await auth.authStateReady();
 export async function connect() {

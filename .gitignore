@@ -1,0 +1,7 @@
+node_modules/
+.runtime/
+private/
+.env*
+.secret.local
+.firebase/
+*-debug.log

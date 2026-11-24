@@ -107,8 +107,9 @@ async function call(op, body) {
   return j;
 }
 function login() {
+  main.className = "portal";
   main.innerHTML =
-    '<div class="intro"><h1>Parlement citoyen</h1><p>Entrez dans votre Parlement avec les accès remis par l’organisation.</p></div><div class="grid">' +
+    '<div class="mast"><h1>Parlement citoyen</h1><p>Entrez dans votre Parlement avec les accès remis par l’organisation.</p></div><div class="grid">' +
     section(
       "Rejoindre une session",
       form(
@@ -154,31 +155,116 @@ const name = (id) =>
   v.amends.find((a) => a.id === id)?.text ||
   id;
 const aff = (id) => "<strong>" + h(name(id)) + "</strong>";
-function trend(vv) {
-  const keys = {
-    "↑↑": "très favorable",
-    "↑": "favorable",
-    "—": "aucun effet significatif modélisé",
-    "↓": "défavorable",
-    "↓↓": "très défavorable",
-    "": "incertain",
-  };
+const icon = (id) =>
+  '<svg class="icon" aria-hidden="true" focusable="false"><use href="/design/icons.svg#' +
+  id +
+  '"/></svg>';
+const roomIcons = {
+  P: "shield-check",
+  C: "stethoscope",
+  E: "trees",
+  S: "globe",
+};
+const indicators = ["heart-pulse", "leaf", "coins", "scale", "handshake"];
+const navIcons = {
+  Assemblée: "landmark",
+  Journal: "newspaper",
+  "Mon équipe": "users",
+  Rédaction: "pencil-line",
+  Régie: "panels-top-left",
+  Débriefing: "vote",
+};
+function roomMark(key) {
   return (
-    '<p class="meta">' +
+    '<span class="room-mark room-' +
+    h(key) +
+    '">' +
+    icon(
+      v.roomNames.P === "Prévention"
+        ? roomIcons[key] || "landmark"
+        : "landmark",
+    ) +
+    "</span>"
+  );
+}
+function effect(t) {
+  const key = t.replace("?", ""),
+    words = {
+      "↑": "Favorable",
+      "↑↑": "Très favorable",
+      "↓": "Défavorable",
+      "↓↓": "Très défavorable",
+      "—": "Stable",
+      "": "Incertain",
+    };
+  return (
+    '<span class="effect ' +
+    (key.startsWith("↑") ? "positive" : key.startsWith("↓") ? "negative" : "") +
+    '"><b aria-hidden="true">' +
+    h(t) +
+    "</b> " +
+    h(words[key] || t) +
+    (key && t.includes("?") ? ", incertain" : "") +
+    "</span>"
+  );
+}
+function trend(vv) {
+  return (
+    '<section class="impacts"><h4>Effets envisagés</h4><dl>' +
     vv.trends
       .map(
         (t, i) =>
+          "<div><dt>" +
+          icon(indicators[i]) +
           h(v.dimensions[i]) +
-          " " +
-          h(t) +
-          " " +
-          h(keys[t.replace("?", "")] || "") +
-          (t.includes("?") ? " (incertain)" : ""),
+          "</dt><dd>" +
+          effect(t) +
+          "</dd></div>",
       )
-      .join(" · ") +
-    "</p>"
+      .join("") +
+    "</dl>" +
+    details(
+      "Lire les effets",
+      para(
+        "Ces tendances sont les hypothèses du scénario. Stable signifie qu’aucun changement notable n’est modélisé. Incertain indique une réserve sur l’effet envisagé.",
+      ),
+    ) +
+    "</section>"
   );
 }
+function comparison(m, t) {
+  return (
+    '<div class="scroll"><table class="comparison"><thead><tr><th>Indicateur</th><th>' +
+    h(m.id) +
+    " · Initial</th><th>" +
+    h(t.id) +
+    " · Amendé</th></tr></thead><tbody>" +
+    v.dimensions
+      .map(
+        (d, i) =>
+          "<tr><th>" +
+          icon(indicators[i]) +
+          h(d) +
+          "</th><td>" +
+          effect(m.trends[i]) +
+          "</td><td>" +
+          effect(t.trends[i]) +
+          "</td></tr>",
+      )
+      .join("") +
+    "</tbody></table></div>"
+  );
+}
+const pollLabel = (p) =>
+  ({
+    ouvert: "Vote ouvert",
+    clos: "Vote clos · Résultat à venir",
+    dépouillement: "Vote clos · Résultat à venir",
+    annoncé: "Résultat annoncé",
+    égalité: "Égalité · Départage requis",
+    suspendu: "Scrutin suspendu",
+    incident: "Scrutin interrompu",
+  })[p.status] || p.status;
 function polls(r) {
   return v.polls
     .filter((p) => p.room === r)
@@ -186,7 +272,7 @@ function polls(r) {
     .reverse()
     .map((p) => {
       let body =
-        tag(p.status) +
+        tag(pollLabel(p)) +
         (p.round ? " " + tag("Départage") : "") +
         para(p.options.map(name).join(" • "));
       if (p.paper) body += tag("Scrutin papier · double comptage");
@@ -203,7 +289,7 @@ function polls(r) {
       }
       if (p.expected !== undefined)
         body += para(p.received + " / " + p.expected + " bulletins reçus");
-      if (p.voted) body += para("Votre bulletin a été enregistré.");
+      if (p.voted) body += para("Vote enregistré");
       else if (p.eligible && p.status === "ouvert")
         body += form(
           { type: "vote", poll: p.id },
@@ -256,7 +342,7 @@ function polls(r) {
         let commands =
           {
             ouvert: [
-              ["close", "Clore"],
+              ["close", "Clore le vote"],
               ["suspend", "Suspendre"],
             ],
             clos: [["announce", "Annoncer le résultat"]],
@@ -407,7 +493,7 @@ function assembly() {
   let r = v.rooms[room],
     ms = v.measures.filter((m) => m.room === room),
     m = ms.find((m) => m.id === r.focus);
-  let title = h(v.roomNames[room]),
+  let title = roomMark(room) + h(v.roomNames[room]),
     display = role() === "Projection",
     allow = control(room),
     phase = v.phase;
@@ -422,28 +508,41 @@ function assembly() {
               '" data-room="' +
               h(k) +
               '">' +
+              roomMark(k) +
               h(v.roomNames[k]) +
               "</button>",
           )
           .join("") +
         "</nav>"
       : "";
+  const currentPoll = v.polls.filter((p) => p.room === room).at(-1);
+  const state = currentPoll ? pollLabel(currentPoll) : "En débat";
   let focus = m
-    ? section(
-        m.title,
-        tag("Texte en discussion") +
-          para(m.text) +
-          (m.official.id !== m.id
-            ? section("Clause adoptée", para(m.official.text))
-            : "") +
-          trend(m.official) +
-          (r.until
-            ? para(
-                "Échéance indicative · " +
-                  new Date(r.until).toLocaleTimeString("fr-BE"),
-              )
-            : ""),
-      )
+    ? '<article class="proposal"><div class="proposal-meta">' +
+      roomMark(room) +
+      h(v.roomNames[room]) +
+      "<span>" +
+      h(m.official.id) +
+      " · " +
+      h(v.phase) +
+      "</span></div><h3>" +
+      h(m.title) +
+      "</h3>" +
+      para(m.text) +
+      (m.official.id !== m.id
+        ? section("Clause adoptée · " + m.official.id, para(m.official.text))
+        : "") +
+      trend(m.official) +
+      "<footer>" +
+      tag(state) +
+      (currentPoll?.status === "ouvert" && display
+        ? " Votez sur votre appareil."
+        : "") +
+      (r.until
+        ? " · Échéance indicative " +
+          h(new Date(r.until).toLocaleTimeString("fr-BE"))
+        : "") +
+      "</footer></article>"
     : "";
   if (v.summary && display)
     return (
@@ -489,14 +588,18 @@ function assembly() {
       (latest
         ? section(
             "Duel · " + v.roomNames[latest.room],
-            tag(latest.status) +
+            tag(pollLabel(latest)) +
+              '<div class="duel">' +
               latest.options
-                .map(
-                  (id) =>
-                    aff(id) +
-                    para(v.measures.find((m) => m.id === id)?.official.text),
+                .map((id) =>
+                  section(
+                    name(id),
+                    tag(v.measures.find((m) => m.id === id)?.official.id) +
+                      para(v.measures.find((m) => m.id === id)?.official.text),
+                  ),
                 )
-                .join(""),
+                .join("") +
+              "</div>",
           )
         : "") +
       content +
@@ -601,7 +704,12 @@ function assembly() {
                   trend(m) +
                   para(m.caution || "") +
                   m.variants
-                    .map((t) => details(t.title, para(t.text) + trend(t)))
+                    .map((t) =>
+                      details(
+                        t.id + " · " + t.title,
+                        para(t.text) + comparison(m, t),
+                      ),
+                    )
                     .join(""),
               ),
             )
@@ -697,7 +805,11 @@ function team() {
   }
   if (v.messages)
     out += section(
-      "Conversation privée",
+      {
+        Citoyen: "Mon territoire",
+        Journaliste: "Ma rédaction",
+        Lobby: "Mon groupe d’influence",
+      }[role()] || "Conversation privée",
       v.messages
         .map(
           (m) =>
@@ -756,8 +868,20 @@ function newsroom() {
       item?.draft ||
       {};
   return (
-    "<h2>Bureau de rédaction</h2>" +
-    v.wires.map((w) => details(w.id + " · " + w.title, para(w.text))).join("") +
+    '<h2>Bureau de rédaction</h2><div class="news-desk"><aside><h3>Dépêches reçues</h3>' +
+    v.wires
+      .map((w) =>
+        details(
+          w.id + " · " + w.title,
+          para(
+            (v.roomNames.P === "Prévention"
+              ? "Agence de presse 2036"
+              : "Agence de presse") + " · Dépêche fictive",
+          ) + para(w.text),
+        ),
+      )
+      .join("") +
+    "</aside><div>" +
     section(
       editing ? "Modifier l’article" : "Nouvel article",
       form(
@@ -776,6 +900,7 @@ function newsroom() {
       ),
     ) +
     btn("Nouveau brouillon", { ui: "edit", id: "" }, true) +
+    "</div></div>" +
     v.desk
       .map((n) =>
         section(
@@ -798,7 +923,30 @@ function newsroom() {
 function admin() {
   let out =
     "<h2>Conduite de séance</h2>" +
-    para(v.phase) +
+    '<div class="room-board">' +
+    Object.keys(v.rooms)
+      .map(
+        (k) =>
+          '<button class="room-tile" data-follow="' +
+          h(k) +
+          '">' +
+          roomMark(k) +
+          "<span><strong>" +
+          h(v.roomNames[k]) +
+          "</strong><small>" +
+          h(
+            v.rooms[k].winner
+              ? "Mesure adoptée"
+              : v.rooms[k].finalists.length
+                ? "Finalistes annoncés"
+                : v.polls.filter((p) => p.room === k).length
+                  ? pollLabel(v.polls.filter((p) => p.room === k).at(-1))
+                  : "En débat",
+          ) +
+          "</small></span></button>",
+      )
+      .join("") +
+    "</div>" +
     (v.phase !== "Débriefing"
       ? btn(
           {
@@ -1157,6 +1305,7 @@ function bilan() {
   );
 }
 function render() {
+  main.className = role() === "Projection" ? "projector" : "session-view";
   sessionLabel.textContent = v.code + " · " + v.me.role;
   let tabs = ["Assemblée", "Journal"];
   if (v.me.group) tabs.push("Mon équipe");
@@ -1166,7 +1315,7 @@ function render() {
   if (!tabs.includes(tab)) tab = tabs[0];
   main.innerHTML =
     '<div class="lead">' +
-    tag(v.phase) +
+    tag(v.phase === "Préparation" ? "Préparation en classe" : v.phase) +
     " " +
     tag(v.version) +
     "<h1>" +
@@ -1203,6 +1352,7 @@ function render() {
           '" aria-current="' +
           (t === tab) +
           '">' +
+          icon(navIcons[t]) +
           h(t) +
           "</button>",
       )
@@ -1383,7 +1533,11 @@ async function run(x) {
     }
     await refresh(true);
   } catch (e) {
-    say(e.message);
+    say(
+      x.type === "vote" && e instanceof TypeError
+        ? "Envoi à vérifier · Reconnectez-vous pour retrouver votre confirmation."
+        : e.message,
+    );
   } finally {
     pending = false;
   }
@@ -1391,6 +1545,12 @@ async function run(x) {
 main.addEventListener("click", (e) => {
   let b = e.target.closest("button");
   if (!b) return;
+  if (b.dataset.follow) {
+    room = b.dataset.follow;
+    tab = "Assemblée";
+    render();
+    return;
+  }
   if (b.dataset.tab) {
     tab = b.dataset.tab;
     render();

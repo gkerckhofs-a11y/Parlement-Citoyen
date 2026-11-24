@@ -38,6 +38,13 @@ const app = api(
   adminKey,
 );
 const publicFiles = {
+  "/admin": ["admin.html", "text/html"],
+  "/admin.js": ["admin.js", "text/javascript"],
+  "/google.js": ["google.js", "text/javascript"],
+  "/design/icons.svg": ["design/icons.svg", "image/svg+xml"],
+  "/design/hemicycle.svg": ["design/hemicycle.svg", "image/svg+xml"],
+  "/design/inter.woff2": ["design/inter.woff2", "font/woff2"],
+  "/design/source-serif.woff2": ["design/source-serif.woff2", "font/woff2"],
   "/report.js": ["report.js", "text/javascript"],
   "/": ["index.html", "text/html"],
   "/app.js": ["app.js", "text/javascript"],

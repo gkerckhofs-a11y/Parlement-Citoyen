@@ -36,7 +36,7 @@ async function api(op, body = {}) {
 }
 async function enter(code) {
   const state = await api("view", { code, id: "REG" });
-  const { openGoogleDesk } = await import("./app.js?v=regie2");
+  const { openGoogleDesk } = await import("./app.js?v=papier1");
   openGoogleDesk(code, state);
   history.replaceState(null, "", "/admin?session=" + encodeURIComponent(code));
   notice.textContent = "";
@@ -50,9 +50,13 @@ const scenarios = {
     "Consulter le bilan en régie, projeter le journal 2040 et exporter les résultats. Ouvrir C1 pour essayer le sondage facultatif.",
 };
 async function home() {
-  main.replaceChildren(el("h1", "Administration du Parlement"));
+  main.className = "portal";
+  const mast = el("div");
+  mast.className = "mast";
+  mast.append(el("h1", "Administration du Parlement"));
+  main.replaceChildren(mast);
   if (!signedIn()) {
-    main.append(
+    mast.append(
       el(
         "p",
         "Connectez-vous avec le compte Google autorisé pour ouvrir la régie.",
@@ -95,7 +99,12 @@ async function home() {
     main.append(grid);
     for (const s of items) {
       let card = el("article");
-      card.append(el("h3", s.title), el("small", s.code + " · " + s.phase));
+      card.className = "session-card";
+      card.append(
+        el("small", s.code),
+        el("h3", scenarios[s.code] ? s.title.split(" · ")[1] || s.title : s.title),
+      );
+      card.append(el("small", "Phase actuelle · " + s.phase));
       if (scenarios[s.code]) card.append(el("p", scenarios[s.code]));
       card.append(button("Ouvrir la régie", () => enter(s.code)));
       grid.append(card);

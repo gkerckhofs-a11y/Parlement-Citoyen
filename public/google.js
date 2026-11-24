@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import {
   getAuth,
   setPersistence,
-  browserSessionPersistence,
+  browserLocalPersistence,
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
@@ -11,7 +11,7 @@ const response = await fetch("/__/firebase/init.json");
 if (!response.ok) throw Error("La configuration Firebase est indisponible.");
 const config = await response.json();
 const auth = getAuth(initializeApp(config));
-await setPersistence(auth, browserSessionPersistence);
+await setPersistence(auth, browserLocalPersistence);
 await auth.authStateReady();
 export async function connect() {
   const provider = new GoogleAuthProvider();

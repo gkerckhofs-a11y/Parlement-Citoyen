@@ -1,4 +1,4 @@
-import { connect, bearer, logout, signedIn } from "./google.js";
+import { connect, bearer, logout, signedIn } from "./google.js?v=regie2";
 const main = document.querySelector("#main"),
   notice = document.querySelector("#feedback");
 function el(tag, text) {
@@ -34,12 +34,12 @@ async function api(op, body = {}) {
   if (!r.ok) throw Error(j.error);
   return j;
 }
-function enter(code) {
-  sessionStorage.setItem(
-    "pc.auth",
-    JSON.stringify({ code, id: "REG", google: true }),
-  );
-  location.assign("/");
+async function enter(code) {
+  const state = await api("view", { code, id: "REG" });
+  const { openGoogleDesk } = await import("./app.js?v=regie2");
+  openGoogleDesk(code, state);
+  history.replaceState(null, "", "/admin?session=" + encodeURIComponent(code));
+  notice.textContent = "";
 }
 const scenarios = {
   AC20360001:
@@ -71,6 +71,15 @@ async function home() {
       await home();
     }),
   );
+  const selected = new URLSearchParams(location.search).get("session");
+  if (selected && /^[A-F0-9]{10}$/.test(selected)) {
+    try {
+      await enter(selected);
+      return;
+    } catch (e) {
+      notice.textContent = e.message;
+    }
+  }
   const { sessions } = await api("admin-list");
   for (const [title, items] of [
     [
@@ -121,7 +130,7 @@ async function home() {
         count: Number(count.value),
         review: review.checked,
       });
-      enter(s.code);
+      await enter(s.code);
     }),
   );
   main.append(card);

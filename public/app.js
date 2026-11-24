@@ -95,7 +95,8 @@ async function call(op, body) {
       ...(body.google
         ? {
             Authorization:
-              "Bearer " + (await (await import("./google.js")).bearer()),
+              "Bearer " +
+              (await (await import("./google.js?v=regie2")).bearer()),
           }
         : {}),
     },
@@ -1267,9 +1268,11 @@ function csv(rows) {
   );
 }
 function link(a) {
+  if (a.id === "REG" && auth?.google)
+    return location.origin + "/admin?session=" + encodeURIComponent(v.code);
   return (
     location.origin +
-    location.pathname +
+    "/" +
     "#" +
     new URLSearchParams({ code: v.code, id: a.id, key: a.key })
   );
@@ -1439,12 +1442,24 @@ main.addEventListener("submit", async (e) => {
     say(err.message);
   }
 });
-if (auth)
-  refresh(true).catch((e) => {
-    say(e.message);
-    login();
-  });
-else login();
+export function openGoogleDesk(code, state) {
+  auth = { code, id: "REG", google: true };
+  tab = "Régie";
+  room = "";
+  v = state;
+  last = JSON.stringify(state);
+  render();
+}
+if (location.pathname !== "/admin" && location.pathname !== "/admin.html") {
+  if (auth?.google)
+    location.replace("/admin?session=" + encodeURIComponent(auth.code));
+  else if (auth)
+    refresh(true).catch((e) => {
+      say(e.message);
+      login();
+    });
+  else login();
+}
 setInterval(
   () =>
     refresh().catch(() => say("Connexion interrompue. Reconnexion en cours.")),

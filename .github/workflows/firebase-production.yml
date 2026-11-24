@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.github/workflows/firebase-production.yml']
+    paths: ['.github/workflows/firebase-production.yml', 'public/**']
     tags: ['publication-*']
 permissions:
   contents: read
@@ -55,9 +55,10 @@ jobs:
           service_account: publication-firebase@parlement-citoyen.iam.gserviceaccount.com
       - uses: google-github-actions/setup-gcloud@v2
       - name: Mettre à jour la fonction de deuxième génération
+        if: "!contains(github.event.head_commit.message, '[hosting]')"
         run: |
           gcloud functions deploy parliament --gen2 --project=parlement-citoyen --region=europe-west1 --runtime=nodejs22 --entry-point=parliament --trigger-http --source=functions --quiet
-      - run: npx --yes firebase-tools@14.27.0 deploy --project parlement-citoyen --only firestore:rules,hosting --non-interactive
+      - run: npx --yes firebase-tools@14.27.0 deploy --project parlement-citoyen --only "${{ contains(github.event.head_commit.message, '[hosting]') && 'hosting' || 'firestore:rules,hosting' }}" --non-interactive
       - name: Vérifier le site et son API
         run: |
           curl -fsS https://parlement-citoyen.web.app/ -o /tmp/parlement.html

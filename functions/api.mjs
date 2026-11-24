@@ -1,6 +1,13 @@
-import { create, identify, view, act, token } from "./engine.mjs";
+import {
+  create,
+  identify,
+  view,
+  act,
+  token,
+  ensurePressScreen,
+} from "./engine.mjs";
 import { demo, check } from "./scenario.mjs";
-import { timingSafeEqual, createHash } from "node:crypto";
+import { timingSafeEqual, createHash, createHmac } from "node:crypto";
 const hash = (v) => createHash("sha256").update(String(v)).digest();
 export function api(store, adminKey, google) {
   return async (req, res) => {
@@ -53,7 +60,8 @@ export function api(store, adminKey, google) {
           : { code: s.code, id: "REG", key: token(s, "REG") };
       } else {
         check(
-          /^[A-F0-9]{10}$/.test(code) && ["view", "action"].includes(op),
+          /^[A-F0-9]{10}$/.test(code) &&
+            ["view", "action", "picture"].includes(op),
           "Session ou commande invalide",
         );
         let googleAccess = false;
@@ -61,22 +69,68 @@ export function api(store, adminKey, google) {
           await google.verify(bearer);
           googleAccess = true;
         }
-        const handle = (s) => {
+        const handle = (s, savePicture) => {
+          ensurePressScreen(s);
           check(
             id !== "REG" || !s.googleAdmin || googleAccess,
             "Connexion Google requise.",
           );
           let a = googleAccess ? s.members.REG : identify(s, id, key);
           if (op === "action") {
-            act(s, a, action);
+            if (action?.type === "article") {
+              const { photo, image: ignored, ...draft } = action;
+              if (photo) {
+                check(
+                  a.role === "Journaliste" &&
+                    typeof photo === "string" &&
+                    photo.length <= 320000 &&
+                    /^data:image\/jpeg;base64,[a-zA-Z0-9+/]+=*$/.test(photo),
+                  "Photographie invalide ou trop lourde",
+                );
+                const bytes = Buffer.from(photo.split(",")[1], "base64");
+                check(
+                  bytes[0] === 255 &&
+                    bytes[1] === 216 &&
+                    bytes.at(-2) === 255 &&
+                    bytes.at(-1) === 217,
+                  "Format JPEG attendu",
+                );
+                draft.image = createHmac("sha256", s.secret)
+                  .update(bytes)
+                  .digest("hex");
+                act(s, a, draft);
+                savePicture(draft.image, bytes);
+              } else act(s, a, draft);
+            } else act(s, a, action);
             return { ok: true };
+          }
+          if (op === "picture") {
+            const image = body.image;
+            check(
+              typeof image === "string" &&
+                /^[0-9a-f]{64}$/.test(image) &&
+                s.articles.some(
+                  (n) =>
+                    n.public?.image === image ||
+                    ((a.role === "Régie" ||
+                      a.role === "Présidence" ||
+                      (a.role === "Journaliste" && n.group === a.group)) &&
+                      n.draft?.image === image),
+                ),
+              "Photo indisponible",
+            );
+            return store
+              .picture(code, image)
+              .then((bytes) => ({
+                photo: "data:image/jpeg;base64," + bytes.toString("base64"),
+              }));
           }
           return view(s, a);
         };
         result =
           op === "action"
             ? await store.change(code, handle)
-            : handle(await store.get(code));
+            : await handle(await store.get(code));
       }
       res.end(JSON.stringify(result));
     } catch (e) {

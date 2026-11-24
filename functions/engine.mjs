@@ -81,6 +81,7 @@ export function create(pack, n, review = false, custom = {}) {
   add("ENS", "Enseignant");
   add("ECR", "Projection");
   add("ECR-PL", "Projection");
+  ensurePressScreen(s);
   rooms.forEach((r) => {
     s.rooms[r] = {
       focus: pack.measures.find((m) => m.room === r).id,
@@ -111,6 +112,16 @@ export function create(pack, n, review = false, custom = {}) {
   for (let i = 0; i < counts[2]; i++)
     add("J" + (i + 1), "Journaliste", "J" + (i % nm));
   return s;
+}
+// Older sessions acquire the press screen on their next read or action.
+export function ensurePressScreen(s) {
+  s.members["ECR-NEWS"] ??= {
+    id: "ECR-NEWS",
+    role: "Projection",
+    group: "",
+    room: "",
+    present: true,
+  };
 }
 export function identify(s, id, key) {
   let m = s.members[id];
@@ -768,6 +779,7 @@ export function act(s, a, x) {
       s.articles.push(v);
     }
     v.draft = {
+      image: x.removeImage ? "" : (x.image ?? v.draft?.image ?? ""),
       title: str(x.title, 140),
       text: str(x.text, 6000),
       sources: String(x.sources || "").slice(0, 500),

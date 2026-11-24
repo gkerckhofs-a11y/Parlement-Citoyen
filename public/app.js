@@ -226,7 +226,7 @@ function trend(vv) {
     details(
       "Lire les effets",
       para(
-        "Ces tendances sont les hypothèses du scénario. Stable signifie qu’aucun changement notable n’est modélisé. Incertain indique une réserve sur l’effet envisagé.",
+        "Les commissions estiment les effets possibles de la mesure. « Stable » indique peu de changement attendu. « Incertain » indique que les connaissances disponibles ne permettent pas de trancher.",
       ),
     ) +
     "</section>"
@@ -487,6 +487,124 @@ function proposals(r) {
     })
     .join("");
 }
+function banner(m) {
+  if (!m) return "";
+  const asset =
+    /^[PCES][1-5]$/.test(m.id) && v.roomNames.P === "Prévention"
+      ? "/design/measures/" + m.id + ".webp"
+      : "/design/hemicycle.svg";
+  return (
+    '<img class="measure-banner" src="' + asset + '" alt="" loading="lazy">'
+  );
+}
+function picture(n) {
+  return n?.image
+    ? '<img class="press-photo" data-photo="' +
+        h(n.image) +
+        '" alt="Illustration de l’article">'
+    : "";
+}
+const photos = new Map();
+async function loadPhotos() {
+  for (const img of main.querySelectorAll("img[data-photo]")) {
+    const id = img.dataset.photo,
+      key = auth.code + "." + id;
+    if (!photos.has(key))
+      photos.set(
+        key,
+        call("picture", { ...auth, image: id }).then((r) => r.photo),
+      );
+    photos
+      .get(key)
+      .then((src) => (img.src = src))
+      .catch(() => {
+        photos.delete(key);
+        img.alt = "Illustration momentanément indisponible";
+      });
+  }
+}
+async function preparePhoto(file) {
+  const url = URL.createObjectURL(file),
+    img = new Image();
+  try {
+    img.src = url;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    let scale = Math.min(
+      1,
+      1440 / Math.max(img.naturalWidth, img.naturalHeight),
+    );
+    for (let i = 0; i < 8; i++) {
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const photo = canvas.toDataURL("image/jpeg", 0.8);
+      if (photo.startsWith("data:image/jpeg;") && photo.length <= 320000)
+        return photo;
+      scale *= 0.75;
+    }
+  } catch {
+    throw Error(
+      "Cette image ne peut pas être ouverte. Choisissez une photo JPEG, PNG ou WebP.",
+    );
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  throw Error("Image trop volumineuse.");
+}
+let pressIndex = 0,
+  pressDeadline = 0;
+function pressScreen() {
+  const news = [...v.news].sort(
+    (a, b) => Number(b.front) - Number(a.front) || b.time.localeCompare(a.time),
+  );
+  const pages = news.flatMap((n) => {
+    const parts = n.text.match(/[\s\S]{1,310}(?:\s|$)|[\s\S]{1,310}/g) || [""];
+    return parts.map((text, i) => ({
+      ...n,
+      text,
+      image: i === 0 ? n.image : "",
+      sources: i === parts.length - 1 ? n.sources : "",
+      page: parts.length > 1 ? i + 1 + " / " + parts.length : "",
+    }));
+  });
+  const n = pages[pressIndex % (pages.length || 1)];
+  if (!pressDeadline) pressDeadline = Date.now() + 15000;
+  return (
+    '<section class="press-screen"><p class="press-kicker">Journal du Parlement</p>' +
+    (n
+      ? "<article>" +
+        tag(n.media) +
+        (n.front ? " " + tag("À la Une") : "") +
+        "<h1>" +
+        h(n.title) +
+        "</h1>" +
+        picture(n) +
+        para(n.text) +
+        (n.page ? tag(n.page) : "") +
+        (n.sources ? para(n.sources) : "") +
+        "</article>"
+      : section(
+          "En direct du Parlement",
+          para("Les rédactions préparent leurs premières éditions."),
+        )) +
+    "</section>"
+  );
+}
+setInterval(() => {
+  if (
+    v?.me.id === "ECR-NEWS" &&
+    v.news.length > 0 &&
+    Date.now() >= pressDeadline
+  ) {
+    pressIndex++;
+    pressDeadline = 0;
+    render();
+  }
+}, 1000);
 function assembly() {
   let list = Object.keys(v.rooms);
   if (!list.includes(room)) room = v.me.room || list[0];
@@ -518,11 +636,13 @@ function assembly() {
   const currentPoll = v.polls.filter((p) => p.room === room).at(-1);
   const state = currentPoll ? pollLabel(currentPoll) : "En débat";
   let focus = m
-    ? '<article class="proposal"><div class="proposal-meta">' +
+    ? '<article class="proposal">' +
+      banner(m) +
+      '<div class="proposal-meta">' +
       roomMark(room) +
       h(v.roomNames[room]) +
       "<span>" +
-      h(m.official.id) +
+      h(m.official.id === m.id ? "Proposition" : "Proposition amendée") +
       " · " +
       h(v.phase) +
       "</span></div><h3>" +
@@ -558,7 +678,7 @@ function assembly() {
       ) +
       "</div>"
     );
-  if (v.slide && display)
+  if (v.slide && display && !v.me.room)
     return (
       '<div class="screen"><h2>Le journal 2040</h2>' +
       tag("Fiction prospective") +
@@ -594,7 +714,7 @@ function assembly() {
                 .map((id) =>
                   section(
                     name(id),
-                    tag(v.measures.find((m) => m.id === id)?.official.id) +
+                    banner(v.measures.find((m) => m.id === id)) +
                       para(v.measures.find((m) => m.id === id)?.official.text),
                   ),
                 )
@@ -700,7 +820,8 @@ function assembly() {
             .map((m) =>
               section(
                 m.title,
-                para(m.text) +
+                banner(m) +
+                  para(m.text) +
                   trend(m) +
                   para(m.caution || "") +
                   m.variants
@@ -851,7 +972,7 @@ function journal() {
                 (n.corrected ? " · corrigé" : ""),
             ) +
             (reading === n.id
-              ? para(n.text) + para(n.sources)
+              ? picture(n) + para(n.text) + para(n.sources)
               : btn("Lire l’article", { ui: "read", id: n.id })),
         ),
       )
@@ -876,7 +997,7 @@ function newsroom() {
           para(
             (v.roomNames.P === "Prévention"
               ? "Agence de presse 2036"
-              : "Agence de presse") + " · Dépêche fictive",
+              : "Agence de presse") + " · Fil des rédactions",
           ) + para(w.text),
         ),
       )
@@ -888,6 +1009,11 @@ function newsroom() {
         { type: "article", id: editing },
         field("Titre", "title", d.title || "") +
           field("Article", "text", d.text || "", "area") +
+          picture(item?.draft) +
+          '<label>Photo ou illustration<input type="file" name="attachment" accept="image/*"></label><label>Prendre une photo<input type="file" name="camera" accept="image/*" capture="environment"></label><img class="press-photo" data-preview hidden alt="Aperçu de l’image choisie">' +
+          (item?.draft?.image
+            ? '<label><input type="checkbox" name="removeImage">Retirer l’image actuelle</label>'
+            : "") +
           '<label>Sources et interviews<input name="sources" value="' +
           h(d.sources) +
           '"></label>' +
@@ -920,9 +1046,58 @@ function newsroom() {
       .join("")
   );
 }
+function accessPanels() {
+  if (!v.roster) return "";
+  const anchor = (a, label) =>
+    '<a class="desk-link" target="_blank" rel="noopener noreferrer" href="' +
+    h(link(a)) +
+    '">' +
+    h(label) +
+    "</a>";
+  const projectors = v.roster.filter(
+    (a) => a.role === "Projection" && a.id !== "ECR",
+  );
+  let html =
+    '<section class="access-panel"><h3>Écrans de projection</h3><div>' +
+    projectors
+      .map((a) =>
+        anchor(
+          a,
+          a.room
+            ? v.roomNames[a.room]
+            : a.id === "ECR-PL"
+              ? "Plénière"
+              : "Actualités des rédactions",
+        ),
+      )
+      .join("") +
+    "</div></section>";
+  if (["AC20360001", "AC20360002", "AC20360003"].includes(v.code)) {
+    const roles = {
+      Citoyen: "Citoyen",
+      Lobby: "Groupe d’influence",
+      Journaliste: "Journaliste",
+      Modérateur: "Modération de commission",
+      Expert: "Expert",
+      Enseignant: "Enseignant",
+      Présidence: "Présidence",
+    };
+    html +=
+      '<section class="access-panel"><h3>Essayer un rôle</h3><div>' +
+      Object.entries(roles)
+        .map(([role, label]) => {
+          const a = v.roster.find((a) => a.role === role);
+          return a ? anchor(a, label) : "";
+        })
+        .join("") +
+      "</div></section>";
+  }
+  return html;
+}
 function admin() {
   let out =
     "<h2>Conduite de séance</h2>" +
+    accessPanels() +
     '<div class="room-board">' +
     Object.keys(v.rooms)
       .map(
@@ -1033,6 +1208,7 @@ function admin() {
           section(
             n.draft.title,
             tag(n.status) +
+              picture(n.draft) +
               para(n.draft.text) +
               (n.status === "à relire"
                 ? btn("Autoriser la publication", {
@@ -1307,6 +1483,22 @@ function bilan() {
 function render() {
   main.className = role() === "Projection" ? "projector" : "session-view";
   sessionLabel.textContent = v.code + " · " + v.me.role;
+  if (role() === "Projection") {
+    sessionLabel.textContent = v.me.room
+      ? v.roomNames[v.me.room]
+      : v.me.id === "ECR-NEWS"
+        ? "Actualités"
+        : v.me.id === "ECR-PL"
+          ? "Plénière"
+          : "Parlement";
+    main.innerHTML = v.me.id === "ECR-NEWS" ? pressScreen() : assembly();
+    loadPhotos();
+    return;
+  }
+  const participant = !chair();
+  if (participant)
+    sessionLabel.textContent =
+      role() === "Lobby" ? "Groupe d’influence" : role();
   let tabs = ["Assemblée", "Journal"];
   if (v.me.group) tabs.push("Mon équipe");
   if (role() === "Journaliste") tabs.push("Rédaction");
@@ -1317,9 +1509,16 @@ function render() {
     '<div class="lead">' +
     tag(v.phase === "Préparation" ? "Préparation en classe" : v.phase) +
     " " +
-    tag(v.version) +
+    (participant ? "" : tag(v.version)) +
     "<h1>" +
-    h(v.scenario) +
+    h(
+      participant
+        ? v.scenario.replace(
+            /^Répétition · (?:Commissions|Plénière|Débriefing) · /,
+            "",
+          )
+        : v.scenario,
+    ) +
     "</h1>" +
     (!v.me.room && !v.me.group
       ? ""
@@ -1327,7 +1526,12 @@ function render() {
           [v.team?.name, v.roomNames[v.me.room]].filter(Boolean).join(" · "),
         )) +
     (v.phase === "Préparation"
-      ? para(v.context) +
+      ? para(
+          v.context.replace(
+            "Les effets présentés sont des hypothèses de jeu soumises à relecture.",
+            "Les commissions examinent les effets attendus de chaque mesure.",
+          ),
+        ) +
         (v.composition
           ? details(
               "Composition du Parlement",
@@ -1340,6 +1544,10 @@ function render() {
       : "") +
     "</div>" +
     v.notices
+      .filter(
+        (n) =>
+          !participant || !n.startsWith("Session de répétition. Les identités"),
+      )
       .slice(-1)
       .map((n) => section("Annonce du Parlement", para(n)))
       .join("") +
@@ -1367,6 +1575,7 @@ function render() {
       Régie: admin,
       Débriefing: bilan,
     }[tab]();
+  loadPhotos();
 }
 async function refresh(force = false) {
   if (!auth || (pending && !force)) return;
@@ -1561,6 +1770,36 @@ main.addEventListener("click", (e) => {
   }
   if (b.dataset.command) run(JSON.parse(b.dataset.command));
 });
+main.addEventListener("change", async (e) => {
+  const input = e.target;
+  if (!["attachment", "camera"].includes(input.name)) return;
+  const f = input.form,
+    file = input.files[0];
+  if (!file) return;
+  f.elements[input.name === "camera" ? "attachment" : "camera"].value = "";
+  const preview = f.querySelector("[data-preview]"),
+    submit = f.querySelector("button");
+  const request = String(Number(f.dataset.upload || 0) + 1);
+  f.dataset.upload = request;
+  submit.disabled = true;
+  try {
+    const photo = await preparePhoto(file);
+    if (f.dataset.upload === request) {
+      preview.src = photo;
+      preview.hidden = false;
+      if (f.elements.removeImage) f.elements.removeImage.checked = false;
+    }
+  } catch (err) {
+    if (f.dataset.upload === request) {
+      input.value = "";
+      preview.hidden = true;
+      preview.removeAttribute("src");
+      say(err.message);
+    }
+  } finally {
+    if (f.dataset.upload === request) submit.disabled = false;
+  }
+});
 main.addEventListener("input", (e) => {
   if (e.target.form?.dataset.action) {
     let f = e.target.form;
@@ -1578,6 +1817,12 @@ main.addEventListener("submit", async (e) => {
     d = new FormData(f),
     x = { ...JSON.parse(f.dataset.action), ...Object.fromEntries(d) };
   try {
+    if (x.type === "article") {
+      delete x.attachment;
+      delete x.camera;
+      const preview = f.querySelector("[data-preview]");
+      if (!preview.hidden && !x.removeImage) x.photo = preview.src;
+    }
     if (x.type === "survey") x.sources = d.getAll("sources");
     if (x.type === "paper") {
       x.count = Number(x.count);

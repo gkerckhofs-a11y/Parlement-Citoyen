@@ -27,9 +27,14 @@ const app = api(
       });
     },
     get,
+    async picture(code, id) {
+      return fs.readFileSync(path.join(dir, code + "-" + id + ".jpg"));
+    },
     change(code, fn) {
       let s = get(code),
-        result = fn(s);
+        result = fn(s, (id, bytes) =>
+          fs.writeFileSync(path.join(dir, code + "-" + id + ".jpg"), bytes),
+        );
       fs.writeFileSync(file(code) + ".tmp", JSON.stringify(s), { mode: 0o600 });
       fs.renameSync(file(code) + ".tmp", file(code));
       return result;
@@ -51,6 +56,11 @@ const publicFiles = {
   "/editor.js": ["editor.js", "text/javascript"],
   "/app.css": ["app.css", "text/css"],
 };
+for (const name of fs.readdirSync(path.join(root, "public/design/measures")))
+  publicFiles["/design/measures/" + name] = [
+    "design/measures/" + name,
+    "image/webp",
+  ];
 http
   .createServer((req, res) => {
     if (req.url.startsWith("/api/")) return app(req, res);

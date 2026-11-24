@@ -44,12 +44,15 @@ export function firestoreStore(db) {
       const results = await db.runTransaction(
         async (tx) => {
           let { s, count } = await load(doc, tx);
-          const outcomes = [];
+          const outcomes = [],
+            pictures = new Map();
           for (const item of batch.items) {
             const { pack, ...current } = s,
               next = { ...structuredClone(current), pack };
             try {
-              const value = item.fn(next);
+              const staged = new Map();
+              const value = item.fn(next, (id, bytes) => staged.set(id, bytes));
+              for (const [id, bytes] of staged) pictures.set(id, bytes);
               s = next;
               outcomes.push({ value });
             } catch (err) {
@@ -57,6 +60,8 @@ export function firestoreStore(db) {
             }
           }
           if (outcomes.some((o) => !o.error)) {
+            for (const [id, bytes] of pictures)
+              tx.set(doc.collection("pictures").doc(id), { bytes });
             const parts = splitState(s);
             tx.update(doc, {
               count: parts.length,
@@ -80,6 +85,11 @@ export function firestoreStore(db) {
     }
   }
   return {
+    async picture(code, id) {
+      return (await ref(code).collection("pictures").doc(id).get()).get(
+        "bytes",
+      );
+    },
     async list() {
       const docs = await db
         .collection("parlements")

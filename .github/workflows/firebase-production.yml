@@ -2,6 +2,8 @@ name: Publication Firebase
 on:
   workflow_dispatch:
   push:
+    branches: [main]
+    paths: ['.github/workflows/firebase-production.yml']
     tags: ['publication-*']
 permissions:
   contents: read
@@ -10,7 +12,32 @@ concurrency:
   group: parlement-firebase-production
   cancel-in-progress: false
 jobs:
+  verify-access:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1055602103191/locations/global/workloadIdentityPools/parlement-github/providers/github
+          service_account: publication-firebase@parlement-citoyen.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Vérifier les droits effectifs sur les ressources de production
+        shell: bash
+        run: |
+          set -euo pipefail
+          project=parlement-citoyen
+          token=$(gcloud auth print-access-token)
+          check_permissions() {
+            local url="$1" required="$2" response
+            response=$(curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' --data "$(jq -nc --argjson p "$required" '{permissions:$p}')" "$url")
+            jq -e --argjson required "$required" '($required - (.permissions // [])) == []' <<< "$response"
+          }
+          check_permissions "https://cloudresourcemanager.googleapis.com/v1/projects/$project:testIamPermissions" '["firebasehosting.versions.create","firebasehosting.releases.create","cloudfunctions.functions.update","firebaserules.rulesets.create","firebaserules.releases.update","serviceusage.services.use"]'
+          runtime=$(gcloud functions describe parliament --gen2 --region=europe-west1 --project="$project" --format='value(serviceConfig.serviceAccountEmail)')
+          check_permissions "https://iam.googleapis.com/v1/projects/$project/serviceAccounts/$runtime:testIamPermissions" '["iam.serviceAccounts.actAs"]'
   deploy:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/publication-')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

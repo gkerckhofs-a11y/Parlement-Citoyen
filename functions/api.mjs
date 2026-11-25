@@ -113,7 +113,6 @@ export function api(store, adminKey, google) {
                   (n) =>
                     n.public?.image === image ||
                     ((a.role === "Régie" ||
-                      a.role === "Présidence" ||
                       (a.role === "Journaliste" && n.group === a.group)) &&
                       n.draft?.image === image),
                 ),

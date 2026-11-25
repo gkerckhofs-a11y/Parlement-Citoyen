@@ -49,7 +49,7 @@ async function enter(code) {
     location.replace(path);
     return;
   }
-  const { openGoogleDesk } = await import("./app.js?v=vote4");
+  const { openGoogleDesk } = await import("./app.js?v=joueurs1");
   if (url.searchParams.get("session") !== code) {
     for (const name of ["commission", "projection", "regie"])
       url.searchParams.delete(name);

@@ -504,19 +504,28 @@ export function act(s, a, x) {
     return;
   }
   if (type === "offer") {
-    let to = s.members[x.to];
-    check(
-      live &&
-        a.role === "Lobby" &&
-        to?.present &&
-        to.role === "Citoyen" &&
-        m?.room === to.room &&
-        !s.rooms[to.room].locked,
-    );
+    const to = s.members[x.to];
+    check(a.role === "Lobby" && to?.role === "Citoyen");
+    check(m?.room === to.room, "Choisissez une mesure de la commission du citoyen.");
+    // The form keeps its request ID across a retry, even if the recipient already replied.
+    if (x.requestId != null) {
+      check(typeof x.requestId === "string" && /^[a-zA-Z0-9-]{1,64}$/.test(x.requestId));
+      const earlier = s.offers.find((o) => o.by === a.id && o.requestId === x.requestId);
+      if (earlier) {
+        check(earlier.to === to.id && earlier.measure === m.id);
+        return;
+      }
+    }
+    check(live && !s.rooms[to.room].locked, "La négociation est close pour cette commission.");
+    check(to.present, "Ce citoyen est signalé absent.");
+    // Two members of the same association can reach the same agreement at once.
+    check(!s.offers.some((o) => o.group === a.group && o.to === to.id &&
+      o.measure === m.id && o.status !== "refusé"),
+      "Votre association a déjà proposé ce point à ce citoyen.");
     check(
       s.offers.filter((o) => o.group === a.group && o.status !== "refusé")
         .length < s.capacity,
-      "Réserve épuisée",
+      "La réserve de votre association est épuisée.",
     );
     s.offers.push({
       id: randomUUID(),
@@ -524,23 +533,23 @@ export function act(s, a, x) {
       to: to.id,
       measure: m.id,
       status: "proposé",
+      ...(x.requestId ? { by: a.id, requestId: x.requestId } : {}),
     });
     return;
   }
   if (type === "respond") {
-    let o = s.offers.find((v) => v.id === x.offer);
-    check(
-      live &&
-        o?.to === a.id &&
-        o.status === "proposé" &&
-        !s.rooms[a.room].locked,
-    );
+    const o = s.offers.find((v) => v.id === x.offer);
+    check(a.role === "Citoyen" && o && o.to === a.id && typeof x.accept === "boolean");
+    const status = x.accept ? "accepté" : "refusé";
+    if (o.status === status) return;
+    check(live && !s.rooms[a.room].locked, "La négociation est close pour votre commission.");
+    check(o.status === "proposé", "Vous avez déjà répondu à cette proposition.");
     if (x.accept)
       check(
         !s.offers.some((v) => v.to === a.id && v.status === "accepté"),
-        "Un seul point par citoyen",
+        "Vous avez déjà accepté un point.",
       );
-    o.status = x.accept ? "accepté" : "refusé";
+    o.status = status;
     return;
   }
   if (type === "open") {
@@ -816,9 +825,19 @@ export function act(s, a, x) {
     s.survey.receipts[a.id] = true;
     return;
   }
-  if (type === "wire") {
-    check(active && chair(a));
-    let d = s.pack.dispatches.find((v) => v.id === x.id);
+  if (type === "wire" || type === "writeWire") {
+    check(active && full(a));
+    let d;
+    if (type === "writeWire") {
+      d = {
+        id: "BELGA-" + randomUUID(),
+        title: str(x.title, 140),
+        text: str(x.text, 4000),
+      };
+      (s.liveWires ??= []).push(d);
+    } else {
+      d = s.pack.dispatches?.find((v) => v.id === x.id);
+    }
     check(d && !s.dispatches.includes(d.id));
     s.dispatches.push(d.id);
     note(s, a, "Dépêche " + d.id);
@@ -830,6 +849,13 @@ export function act(s, a, x) {
       ? s.articles.find((v) => v.id === x.id && v.group === a.group)
       : null;
     check(!x.id || v);
+    if (v && x.revision !== undefined)
+      check(
+        x.revision === (v.revision || 0),
+        "Un collègue a modifié cet article. Votre saisie est conservée.",
+      );
+    const wire = x.wire ?? v?.draft?.wire ?? "";
+    check(!wire || s.dispatches.includes(wire), "Cette dépêche n’a pas été diffusée.");
     if (!v) {
       v = {
         id: randomUUID(),
@@ -845,8 +871,10 @@ export function act(s, a, x) {
       title: str(x.title, 140),
       text: str(x.text, 6000),
       sources: String(x.sources || "").slice(0, 500),
-      wire: s.dispatches.includes(x.wire) ? x.wire : "",
+      wire,
     };
+    v.revision = (v.revision || 0) + 1;
+    delete v.reason;
     v.status = x.publish ? (s.review ? "à relire" : "publié") : "brouillon";
     if (v.status === "publié") publish(v);
     return;
@@ -855,6 +883,11 @@ export function act(s, a, x) {
     check(full(a));
     let v = s.articles.find((v) => v.id === x.id);
     check(v);
+    if (x.revision !== undefined)
+      check(
+        x.revision === (v.revision || 0),
+        "Cet article a changé. Relisez la dernière version.",
+      );
     if (x.accept) {
       check(v.status === "à relire");
       publish(v);
@@ -866,6 +899,7 @@ export function act(s, a, x) {
         v.front = false;
       }
     }
+    v.revision = (v.revision || 0) + 1;
     return;
   }
   if (type === "front") {
@@ -1094,7 +1128,7 @@ export function view(s, a) {
     status: pack.status,
     context: pack.context,
     phase: s.phase,
-    me: { id: a.id, role: a.role, group: a.group, room: a.room },
+    me: { id: a.id, role: a.role, group: a.group, room: a.room, present: a.present },
     ...(projection ? { projectionScope } : {}),
     roomNames: pack.rooms,
     dimensions,
@@ -1219,42 +1253,56 @@ export function view(s, a) {
       (m) => m.present && m.role === "Citoyen" && m.room === id,
     ).length,
   }));
-  let index = Number(a.group.slice(1));
-  result.team =
-    a.role === "Citoyen"
-      ? pack.territories[index]
-      : a.role === "Lobby"
-        ? pack.lobbies[index]
-        : null;
-  if (result.team)
-    result.team = { name: result.team.name, mission: result.team.mission };
-  if (reporter)
+  if (a.group) {
+    const index = Number(a.group.slice(1));
+    const group = a.role === "Citoyen" ? pack.territories[index]
+      : a.role === "Lobby" ? pack.lobbies[index]
+      : { name: mediaName(a.group), mission: "Enquêtez, identifiez vos sources et choisissez votre angle." };
     result.team = {
-      name: mediaName(a.group),
-      mission: "Enquêtez, identifiez vos sources et choisissez votre angle.",
+      name: group?.name || a.group,
+      mission: group?.mission,
+      canMessage: a.present && ["Commissions", "Plénière"].includes(s.phase),
     };
-  if (a.group) result.messages = s.messages.filter((v) => v.group === a.group);
+    if (a.role === "Citoyen" && Array.isArray(group?.goals))
+      result.team.goals = group.goals.map(({ index, threshold }) => ({ index, threshold }));
+    if (a.role === "Lobby" && Array.isArray(group?.objectives))
+      result.team.objectives = group.objectives;
+    if (s.phase !== "Préparation") {
+      result.team.members = Object.values(s.members)
+        .filter((member) => member.group === a.group)
+        .map(({ id, room, present }) => ({ id, room, present }));
+      result.messages = s.messages.filter((message) => message.group === a.group);
+    }
+  }
   if (a.role === "Lobby" || a.role === "Citoyen") {
-    result.offers = s.offers.filter((o) =>
-      a.role === "Lobby" ? o.group === a.group : o.to === a.id,
-    );
+    result.offers = s.offers
+      .filter((o) => a.role === "Lobby" ? o.group === a.group : o.to === a.id)
+      .map(({ id, group, to, measure, status }) => ({
+        id, group, to, measure, status,
+        association: pack.lobbies[Number(group.slice(1))]?.name || group,
+      }));
     result.capacity = s.capacity;
   }
   if (a.role === "Lobby")
     result.targets = Object.values(s.members)
-      .filter((v) => v.role === "Citoyen" && v.present)
-      .map((v) => ({ id: v.id, room: v.room }));
-  if (reporter || staff) {
-    result.wires = pack.dispatches
-      .filter((d) => staff || s.dispatches.includes(d.id))
-      .map(({ id, title, text }) => ({
-        id,
-        title,
-        text,
-        sent: s.dispatches.includes(id),
+      .filter((v) => s.phase === "Commissions" && v.role === "Citoyen" &&
+        v.present && !s.rooms[v.room].locked)
+      .map((v) => ({
+        id: v.id, room: v.room,
+        territory: pack.territories[Number(v.group.slice(1))]?.name || v.group,
       }));
+  const wires = [...(pack.dispatches || []), ...(s.liveWires || [])];
+  if (reporter || desk) {
+    result.reviewArticles = !!s.review;
+    result.wireAgency =
+      /urgence citoyenne/i.test(pack.title) || !pack.agency ? "Agence Belga" : pack.agency;
+    const sentOrder = new Map(s.dispatches.map((id, index) => [id, index]));
+    result.wires = wires
+      .filter((d) => desk || sentOrder.has(d.id))
+      .map(({ id, title, text }) => ({ id, title, text, sent: sentOrder.has(id) }));
+    if (reporter) result.wires.sort((a, b) => sentOrder.get(a.id) - sentOrder.get(b.id));
     result.desk = s.articles
-      .filter((v) => staff || v.group === a.group)
+      .filter((v) => desk || v.group === a.group)
       .map(({ opens, history, ...v }) => ({
         ...v,
         media: mediaName(v.group),
@@ -1296,7 +1344,7 @@ export function view(s, a) {
         readers: new Set(news.flatMap((v) => Object.keys(v.opens))).size,
       };
     });
-    result.coverage = pack.dispatches.map((d) => {
+    result.coverage = wires.filter((d) => desk || s.dispatches.includes(d.id)).map((d) => {
       let sent =
         s.events.find((e) => e.what === "Dépêche " + d.id)?.time || null;
       let titles = s.articles

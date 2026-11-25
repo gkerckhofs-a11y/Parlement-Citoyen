@@ -1,3 +1,4 @@
+import { influencePanel, influenceMeasures } from "./influence.js";
 import { plenaryDesk } from "./plenary-desk.js?v=vote3";
 import {
   projectionLink,
@@ -87,8 +88,7 @@ let auth = projectorPage
     ? null
     : JSON.parse(sessionStorage.getItem("pc.auth") || "null"),
   v = null,
-  tab =
-    auth?.google || ["REG", "PRE"].includes(auth?.id) ? "Régie" : "Assemblée",
+  tab = null,
   room = "",
   reading = "",
   editing = "",
@@ -898,8 +898,67 @@ function assembly() {
     "</div>"
   );
 }
+const groupTypes = {
+  Citoyen: "Territoire",
+  Lobby: "Association",
+  Journaliste: "Rédaction",
+};
+function groupIdentity() {
+  const words = v.team.name.match(/[\p{L}\p{N}]+/gu) || [];
+  const significant = words.filter((word) => !/^(le|la|les|l|d|du|de|des|et)$/i.test(word));
+  const initials = significant.length > 1
+    ? significant[0][0] + significant[1][0]
+    : (significant[0] || v.me.group).slice(0, 2);
+  const tint = Number(v.me.group.slice(1)) % 8;
+  const room = v.roomNames[v.me.room];
+  return '<div class="group-identity"><span class="group-mark group-tint-' +
+    tint + '" aria-hidden="true">' + h(initials.toLocaleUpperCase("fr-BE")) +
+    '</span><div><small>' + h(groupTypes[role()]) + ' · ' + h(v.me.id) +
+    '</small><strong>' + h(v.team.name) + '</strong>' +
+    (room ? '<span>Commission · ' + h(room) + '</span>' : '') + '</div></div>';
+}
+function groupMembers() {
+  const members = v.team?.members;
+  if (!members) return "";
+  const list = members.map((member) => {
+    const self = member.id === v.me.id ? " (vous)" : "";
+    const room = v.roomNames[member.room];
+    return "<li><strong>" + h(member.id + self) + "</strong>" +
+      (room ? " · " + h(room) : "") + (member.present ? "" : " · Absent") + "</li>";
+  }).join("");
+  return details("Membres du groupe (" + members.length + ")", '<ul class="group-members">' + list + "</ul>");
+}
+function groupFeed(messages, me) {
+  if (!messages.length) return para("Aucun message pour le moment.");
+  const format = new Intl.DateTimeFormat("fr-BE", { dateStyle: "short", timeStyle: "short" });
+  return '<ol class="group-messages">' + [...messages].reverse().map((message) => {
+    const author = message.by === me ? message.by + " (vous)" : message.by;
+    return '<li><div><strong>' + h(author) + '</strong> · <time datetime="' +
+      h(message.time) + '">' + h(format.format(new Date(message.time))) +
+      '</time></div>' + para(message.text) +
+      btn("Signaler", { type: "report", id: message.id, reasonRequired: true }, true) +
+      '</li>';
+  }).join("") + '</ol>';
+}
+function groupConversation() {
+  if (!v.messages) return "";
+  const composer = v.team.canMessage
+    ? form({ type: "message" },
+        '<label>Écrire au groupe<textarea required maxlength="1000" name="text" rows="3"></textarea></label>',
+        "Envoyer au groupe")
+    : para("La discussion est en lecture seule.");
+  return section("Discussion du groupe", composer +
+    '<div id="group-messages">' + groupFeed(v.messages, v.me.id) + '</div>');
+}
 function team() {
-  let out = v.team ? section(v.team.name, para(v.team.mission)) : "";
+  const goals = (v.team?.goals || []).map((goal, index) =>
+    (index === 2 ? "Garde-fou" : "Priorité") + " · " + v.dimensions[goal.index] +
+      " : au moins " + goal.threshold);
+  for (const measures of v.team?.objectives || []) {
+    if (measures.length) goals.push("Faire adopter au moins une de ces mesures : " + measures.map(name).join(" / "));
+  }
+  const objectives = goals.length ? "<ul>" + goals.map((goal) => "<li>" + h(goal) + "</li>").join("") + "</ul>" : "";
+  let out = v.team ? section("Notre mission", para(v.team.mission) + objectives + groupMembers()) : "";
   if (v.surveyDone !== undefined) {
     out += section(
       "Retour facultatif",
@@ -936,82 +995,8 @@ function team() {
           ),
     );
   }
-  if (v.offers) {
-    out += section(
-      "Propositions d’influence",
-      (role() === "Lobby"
-        ? para("Réserve partagée · " + v.capacity + " point(s)")
-        : "") +
-        v.offers
-          .map(
-            (o) =>
-              "<p>" +
-              h(o.measure + " · " + o.to + " · " + o.status) +
-              "</p>" +
-              (role() === "Citoyen" && o.status === "proposé"
-                ? btn("Accepter", {
-                    type: "respond",
-                    offer: o.id,
-                    accept: true,
-                  }) +
-                  btn(
-                    "Refuser",
-                    { type: "respond", offer: o.id, accept: false },
-                    true,
-                  )
-                : ""),
-          )
-          .join("") +
-        (role() === "Lobby" && v.phase === "Commissions"
-          ? form(
-              { type: "offer" },
-              opts(
-                "Citoyen",
-                "to",
-                v.targets.map((t) => [
-                  t.id,
-                  t.id + " · " + v.roomNames[t.room],
-                ]),
-              ) +
-                opts(
-                  "Mesure de sa commission",
-                  "measure",
-                  v.measures.map((m) => [m.id, m.title]),
-                ),
-              "Proposer un point",
-            )
-          : ""),
-    );
-  }
-  if (v.messages)
-    out += section(
-      {
-        Citoyen: "Mon territoire",
-        Journaliste: "Ma rédaction",
-        Lobby: "Mon groupe d’influence",
-      }[role()] || "Conversation privée",
-      v.messages
-        .map(
-          (m) =>
-            "<p><b>" +
-            h(m.by) +
-            "</b> · " +
-            h(m.text) +
-            "</p>" +
-            btn(
-              "Signaler",
-              { type: "report", id: m.id, reasonRequired: true },
-              true,
-            ),
-        )
-        .join("") +
-        form(
-          { type: "message" },
-          field("Message", "text", "", "area"),
-          "Envoyer",
-        ),
-    );
-  return out;
+  out += influencePanel(v, { section, para, opts, btn, form });
+  return out + groupConversation();
 }
 function journal() {
   let articles = [...v.news].sort(
@@ -1041,69 +1026,94 @@ function journal() {
 function draftKey() {
   return "pc.draft." + auth.code + "." + auth.id + "." + editing;
 }
+function rememberDraft(f) {
+  const { title, text, sources, wire, removeImage } = f.elements;
+  const preview = f.querySelector("[data-preview]");
+  const content = {
+    title: title.value, text: text.value, sources: sources.value, wire: wire.value,
+    removeImage: !!removeImage?.checked, revision: JSON.parse(f.dataset.action).revision,
+  };
+  if (!preview.hidden && !content.removeImage) content.photo = preview.src;
+  try {
+    sessionStorage.setItem(draftKey(), JSON.stringify(content));
+  } catch {
+    say("Le brouillon reste ouvert sur cet appareil. Enregistrez-le pour le partager avec la rédaction.");
+  }
+}
+function wireInbox(state, open) {
+  return "<h3>Dépêches · " + h(state.wireAgency) + "</h3>" +
+    (state.wires.length ? [...state.wires].reverse().map((w) =>
+      details(w.title, para(w.text) + (open
+        ? btn("Traiter cette dépêche", { ui: "useWire", id: w.id }, true)
+        : "")),
+    ).join("") : para("Aucune dépêche reçue pour le moment."));
+}
+function wireOptions(wires, selected) {
+  return [["", "Sujet libre"], ...wires.map((w) => [w.id, w.title])]
+    .map(([id, label]) => '<option value="' + h(id) + '"' +
+      (id === selected ? " selected" : "") + ">" + h(label) + "</option>").join("");
+}
+function conflictControls(item, revision) {
+  if (!item || (item.revision || 0) === revision) return "";
+  return section("Une nouvelle version a été enregistrée",
+    para("Votre saisie reste disponible. Comparez-la au texte de votre rédaction avant de continuer.") +
+      details("Lire la version enregistrée", para(item.draft.title) + para(item.draft.text) +
+        para(item.draft.sources) + picture(item.draft)) +
+      btn("Reprendre la version enregistrée", { ui: "reopenDraft" }, true) +
+      btn("Enregistrer ma saisie dans un nouveau brouillon", { ui: "copyDraft" }, true));
+}
 function newsroom() {
-  let item = v.desk.find((n) => n.id === editing),
-    d =
-      JSON.parse(sessionStorage.getItem(draftKey()) || "null") ||
-      item?.draft ||
-      {};
-  return (
-    '<h2>Bureau de rédaction</h2><div class="news-desk"><aside><h3>Dépêches reçues</h3>' +
-    v.wires
-      .map((w) =>
-        details(
-          w.id + " · " + w.title,
-          para(
-            (v.roomNames.P === "Prévention"
-              ? "Agence de presse 2036"
-              : "Agence de presse") + " · Fil des rédactions",
-          ) + para(w.text),
-        ),
-      )
-      .join("") +
-    "</aside><div>" +
-    section(
-      editing ? "Modifier l’article" : "Nouvel article",
-      form(
-        { type: "article", id: editing },
-        field("Titre", "title", d.title || "") +
-          field("Article", "text", d.text || "", "area") +
-          picture(item?.draft) +
-          '<label>Photo ou illustration<input type="file" name="attachment" accept="image/*"></label><label>Prendre une photo<input type="file" name="camera" accept="image/*" capture="environment"></label><img class="press-photo" data-preview hidden alt="Aperçu de l’image choisie">' +
-          (item?.draft?.image
-            ? '<label><input type="checkbox" name="removeImage">Retirer l’image actuelle</label>'
-            : "") +
-          '<label>Sources et interviews<input name="sources" value="' +
-          h(d.sources) +
-          '"></label>' +
-          opts("Dépêche traitée", "wire", [
-            ["", "Sujet libre"],
-            ...v.wires.map((w) => [w.id, w.title]),
-          ]) +
-          '<label><input type="checkbox" name="publish">Soumettre à publication</label>',
-        "Enregistrer",
-      ),
-    ) +
-    btn("Nouveau brouillon", { ui: "edit", id: "" }, true) +
-    "</div></div>" +
-    v.desk
-      .map((n) =>
-        section(
-          n.draft.title,
-          tag(n.status) +
-            para(n.reason || "") +
-            btn("Ouvrir le brouillon", { ui: "edit", id: n.id }) +
-            (n.public
-              ? btn(
-                  n.front ? "Retirer la Une" : "Mettre à la Une",
-                  { type: "front", id: n.id },
-                  true,
-                )
-              : ""),
-        ),
-      )
-      .join("")
-  );
+  const open = ["Commissions", "Plénière"].includes(v.phase);
+  const item = v.desk.find((n) => n.id === editing);
+  const saved = JSON.parse(sessionStorage.getItem(draftKey()) || "null");
+  const d = saved || item?.draft || {};
+  const revision = saved?.revision ?? item?.revision ?? 0;
+  const formAction = { type: "article", id: editing, revision };
+  return '<h2>Bureau de rédaction · ' + h(v.team.name) + '</h2><div class="news-desk"><aside data-wire-inbox>' +
+    wireInbox(v, open) + "</aside><div>" +
+    (open ? section(editing ? "Modifier l’article" : "Nouvel article",
+      '<form data-news-article data-action="' + data(formAction) + '">' +
+        field("Titre", "title", d.title || "") + field("Article", "text", d.text || "", "area") +
+        picture(item?.draft) +
+        '<label>Photo ou illustration<input type="file" name="attachment" accept="image/*"></label>' +
+        '<label>Prendre une photo<input type="file" name="camera" accept="image/*" capture="environment"></label>' +
+        '<img class="press-photo" data-preview ' + (d.photo ? 'src="' + h(d.photo) + '"' : "hidden") +
+        ' alt="Aperçu de l’image choisie">' +
+        (item?.draft?.image ? '<label><input type="checkbox" name="removeImage"' +
+          (d.removeImage ? " checked" : "") + '>Retirer l’image actuelle</label>' : "") +
+        '<label>Sources et interviews<input name="sources" maxlength="500" value="' + h(d.sources) + '"></label>' +
+        '<label>Dépêche traitée<select name="wire">' + wireOptions(v.wires, d.wire) + '</select></label>' +
+        '<div data-draft-conflict>' + conflictControls(item, revision) + '</div>' +
+        '<div class="actions"><button class="secondary" type="submit">Enregistrer le brouillon</button>' +
+        '<button type="submit" name="publish" value="1">' +
+        (v.reviewArticles ? "Envoyer en relecture" : "Publier dans le journal") + '</button></div></form>') +
+        (editing ? btn("Nouvel article", { ui: "edit", id: "" }, true) : "")
+      : para(v.phase === "Préparation" ? "La rédaction ouvrira au début des commissions." : "La rédaction est clôturée.")) +
+    "</div></div><h3>Articles de la rédaction</h3>" +
+    (v.desk.length ? v.desk.map((n) => section(n.draft.title,
+      tag(n.status) + (n.reason ? para(n.reason) : "") +
+      (open ? btn("Ouvrir l’article", { ui: "edit", id: n.id }) :
+        details("Relire le texte", para(n.draft.text) + picture(n.draft))) +
+      (open && n.public ? btn(n.front ? "Retirer la Une" : "Mettre à la Une",
+        { type: "front", id: n.id }, true) : ""),
+    )).join("") : para("Aucun article enregistré."));
+}
+function updateWritingDesk(next, f) {
+  if (JSON.stringify(v.wires) !== JSON.stringify(next.wires)) {
+    const inbox = main.querySelector("[data-wire-inbox]");
+    const opened = [...inbox.querySelectorAll("details[open] summary")].map((n) => n.textContent);
+    inbox.innerHTML = wireInbox(next, true);
+    for (const summary of inbox.querySelectorAll("summary"))
+      if (opened.includes(summary.textContent)) summary.parentElement.open = true;
+    f.elements.wire.innerHTML = wireOptions(next.wires, f.elements.wire.value);
+    say("Le fil de votre rédaction a été mis à jour.");
+  }
+  const item = next.desk.find((n) => n.id === editing);
+  if (item && item.revision !== v.desk.find((n) => n.id === editing)?.revision) {
+    f.querySelector("[data-draft-conflict]").innerHTML = conflictControls(item, JSON.parse(f.dataset.action).revision);
+    loadPhotos();
+  }
+  v = next;
 }
 const deskLink = (a, label) =>
   '<a class="desk-link" target="_blank" rel="noopener noreferrer" href="' +
@@ -1321,21 +1331,15 @@ function admin() {
     "Canal institutionnel",
     form({ type: "notice" }, field("Annonce publique", "text"), "Diffuser"),
   );
-  out += details(
-    "Agence de presse",
-    v.wires
-      .map((w) =>
-        section(
-          w.title,
-          para(w.text) +
-            (w.sent
-              ? tag("Envoyée")
-              : btn("Diffuser aux rédactions", { type: "wire", id: w.id })),
-        ),
-      )
-      .join(""),
-  );
   if (role() === "Régie") {
+    const pressOpen = ["Commissions", "Plénière"].includes(v.phase);
+    out += details(v.wireAgency + " · Diffuser aux rédactions",
+      (pressOpen ? form({ type: "writeWire" },
+        field("Titre de la dépêche", "title") + field("Texte de la dépêche", "text", "", "area"),
+        "Diffuser cette dépêche aux rédactions") : "") +
+        v.wires.map((w) => section(w.title, para(w.text) +
+          (w.sent ? tag("Envoyée") : pressOpen
+            ? btn("Diffuser aux rédactions", { type: "wire", id: w.id }) : tag("À diffuser")))).join(""));
     out += details(
       "Accès et présences · " + v.roster.length,
       btn("Télécharger les accès", { ui: "access" }) +
@@ -1398,6 +1402,7 @@ function admin() {
               (n.status === "à relire"
                 ? btn("Autoriser la publication", {
                     type: "editorial",
+                    revision: n.revision || 0,
                     id: n.id,
                     accept: true,
                   })
@@ -1406,6 +1411,7 @@ function admin() {
                 "Demander une correction",
                 {
                   type: "editorial",
+                  revision: n.revision || 0,
                   id: n.id,
                   accept: false,
                   reasonRequired: true,
@@ -1417,6 +1423,7 @@ function admin() {
                     "Retirer du journal",
                     {
                       type: "editorial",
+                    revision: n.revision || 0,
                       id: n.id,
                       hide: true,
                       reasonRequired: true,
@@ -1777,7 +1784,12 @@ function render() {
   if (role() === "Journaliste") tabs.push("Rédaction");
   if (chair()) tabs.push("Régie");
   if (v.balance) tabs.push("Débriefing");
-  if (!tabs.includes(tab)) tab = tabs[0];
+  if (!tabs.includes(tab)) {
+    if (chair()) tab = "Régie";
+    else if (role() === "Journaliste" && ["Commissions", "Plénière"].includes(v.phase)) tab = "Rédaction";
+    else if (role() === "Lobby") tab = "Mon équipe";
+    else tab = "Assemblée";
+  }
   main.innerHTML =
     '<div class="lead">' +
     tag(v.phase === "Préparation" ? "Préparation en classe" : v.phase) +
@@ -1793,11 +1805,7 @@ function render() {
         : v.scenario,
     ) +
     "</h1>" +
-    (!v.me.room && !v.me.group
-      ? ""
-      : para(
-          [v.team?.name, v.roomNames[v.me.room]].filter(Boolean).join(" · "),
-        )) +
+    (v.team ? groupIdentity() : v.me.room ? para(v.roomNames[v.me.room]) : "") +
     (v.phase === "Préparation"
       ? para(
           v.context.replace(
@@ -1837,12 +1845,17 @@ function render() {
           (t === tab) +
           '">' +
           icon(navIcons[t]) +
-          h(t) +
+          h(t === "Mon équipe" ? "Mon groupe" : t) +
           "</button>",
       )
       .join("") +
     btn("Quitter", { ui: "exit" }, true) +
     "</nav>" +
+    (tab !== "Mon équipe" && role() === "Citoyen" && v.me.present !== false &&
+      v.phase === "Commissions" && !v.rooms[v.me.room]?.locked &&
+      v.offers?.some((offer) => offer.status === "proposé")
+      ? '<button type="button" data-tab="Mon équipe">Voir les propositions d’influence reçues</button>'
+      : "") +
     citizenBallotPanel() +
     {
       Assemblée: assembly,
@@ -1866,6 +1879,14 @@ function editingCurrentForm(next) {
   return [...main.querySelectorAll("form:focus-within, form[data-dirty]")].some(
     (f) => {
       const action = f.dataset.action && JSON.parse(f.dataset.action);
+      if (action?.type === "article")
+        return ["Commissions", "Plénière"].includes(next.phase);
+      if (action?.type === "message") return next.team?.canMessage && next.me.group === v.me.group;
+      if (action?.type === "offer") {
+        const hasReserve = next.offers.filter((o) => o.status !== "refusé").length < next.capacity;
+        return next.me.present !== false && hasReserve &&
+          next.targets.some((t) => t.id === f.elements.to.value);
+      }
       return (
         action?.type !== "vote" ||
         next.polls.some(
@@ -1900,14 +1921,27 @@ async function refresh(force = false) {
       return;
     }
   }
-  let json = JSON.stringify(next);
-  if (
-    !force &&
-    (document.querySelector("#scenario-editor form") ||
-      editingCurrentForm(next) ||
-      json === last)
-  )
+  const writing = main.querySelector("form[data-news-article]:is(:focus-within, [data-dirty])");
+  if (!force && writing && ["Commissions", "Plénière"].includes(next.phase)) {
+    if (v.phase !== next.phase) {
+      const phaseLabel = main.querySelector(".lead > .tag");
+      if (phaseLabel) phaseLabel.textContent = next.phase;
+    }
+    updateWritingDesk(next, writing);
     return;
+  }
+  let json = JSON.stringify(next);
+  if (!force && (json === last || document.querySelector("#scenario-editor form"))) return;
+  if (!force && editingCurrentForm(next)) {
+    // Keep the composer and its caret in place as other group members send messages.
+    const feed = main.querySelector("#group-messages");
+    if (feed && next.messages && next.me.group === v.me.group &&
+        JSON.stringify(next.messages) !== JSON.stringify(v.messages)) {
+      feed.innerHTML = groupFeed(next.messages, next.me.id);
+      v.messages = next.messages;
+    }
+    return;
+  }
   last = json;
   v = next;
   renderPreservingDetails();
@@ -1972,7 +2006,10 @@ async function run(x) {
       auth = null;
       v = null;
       sessionStorage.removeItem("pc.auth");
-      tab = "Assemblée";
+      tab = null;
+      room = "";
+      editing = "";
+      reading = "";
       if (wasGoogle) {
         location.assign("/admin");
         return;
@@ -1994,13 +2031,36 @@ async function run(x) {
       if (auth.id !== "ECR" && !auth.id?.startsWith("ECR-"))
         sessionStorage.setItem("pc.auth", JSON.stringify(auth));
       observingAsModerator = false;
-      tab =
-        x.ui === "create" || ["REG", "PRE"].includes(next.id)
-          ? "Régie"
-          : "Assemblée";
+      tab = null;
+      room = "";
+      editing = "";
+      reading = "";
     } else if (x.ui === "read") {
       await call("action", { ...auth, action: { type: "read", id: x.id } });
       reading = x.id;
+    } else if (x.ui === "useWire") {
+      const f = main.querySelector("[data-news-article]");
+      if (!f) return;
+      f.elements.wire.value = x.id;
+      f.elements.wire.dispatchEvent(new Event("input", { bubbles: true }));
+      f.elements.title.focus();
+      return;
+    } else if (x.ui === "reopenDraft") {
+      sessionStorage.removeItem(draftKey());
+      render();
+      return;
+    } else if (x.ui === "copyDraft") {
+      const f = main.querySelector("[data-news-article]");
+      if (!f.reportValidity()) return;
+      const action = articleAction(f, false);
+      delete action.id;
+      const originalImage = f.querySelector("img[data-photo]")?.dataset.photo;
+      if (originalImage && !action.photo && !action.removeImage)
+        action.photo = (await call("picture", { ...auth, image: originalImage })).photo;
+      await call("action", { ...auth, action });
+      sessionStorage.removeItem(draftKey());
+      editing = "";
+      say("Votre saisie a été enregistrée dans un nouveau brouillon.");
     } else if (x.ui === "edit") {
       editing = x.id;
       render();
@@ -2059,8 +2119,11 @@ async function run(x) {
       }
       await call("action", { ...auth, action: x });
       say(
+        x.type === "article" ? (x.publish ? (v.reviewArticles ? "Article transmis à la régie pour relecture." : "Article publié dans le journal.") : "Brouillon enregistré pour votre rédaction.") :
         x.type === "vote"
           ? "Votre bulletin a été enregistré."
+          : x.type === "offer" ? "Le point a été proposé au citoyen."
+          : x.type === "respond" ? (x.accept ? "Vous avez accepté le point." : "Vous avez refusé le point.")
           : "Action enregistrée.",
       );
       if (x.type === "article") {
@@ -2070,6 +2133,12 @@ async function run(x) {
     }
     await refresh(true);
   } catch (e) {
+    if (x.type === "article" && x.id) {
+      const f = main.querySelector("[data-news-article]");
+      if (f) {
+        try { updateWritingDesk(await call("view", auth), f); } catch { /* Keep the form available offline. */ }
+      }
+    }
     say(
       x.type === "vote" && e instanceof TypeError
         ? "Envoi à vérifier · Reconnectez-vous pour retrouver votre confirmation."
@@ -2133,22 +2202,28 @@ main.addEventListener("click", (e) => {
 });
 main.addEventListener("change", async (e) => {
   const input = e.target;
+  if (input.name === "to" && input.form?.elements.measure && v?.targets) {
+    const choices = influenceMeasures(v, input.value);
+    input.form.elements.measure.replaceChildren(...choices.map(([id, title]) => new Option(title, id)));
+    return;
+  }
   if (!["attachment", "camera"].includes(input.name)) return;
   const f = input.form,
     file = input.files[0];
   if (!file) return;
   f.elements[input.name === "camera" ? "attachment" : "camera"].value = "";
   const preview = f.querySelector("[data-preview]"),
-    submit = f.querySelector("button");
+    submit = f.querySelectorAll('button[type="submit"]');
   const request = String(Number(f.dataset.upload || 0) + 1);
   f.dataset.upload = request;
-  submit.disabled = true;
+  for (const b of submit) b.disabled = true;
   try {
     const photo = await preparePhoto(file);
     if (f.dataset.upload === request) {
       preview.src = photo;
       preview.hidden = false;
       if (f.elements.removeImage) f.elements.removeImage.checked = false;
+      rememberDraft(f);
     }
   } catch (err) {
     if (f.dataset.upload === request) {
@@ -2158,31 +2233,39 @@ main.addEventListener("change", async (e) => {
       say(err.message);
     }
   } finally {
-    if (f.dataset.upload === request) submit.disabled = false;
+    if (f.dataset.upload === request)
+      for (const b of submit) b.disabled = false;
   }
 });
 main.addEventListener("input", (e) => {
   if (e.target.form?.dataset.action) {
     let f = e.target.form;
     f.dataset.dirty = "1";
-    if (JSON.parse(f.dataset.action).type === "article")
-      sessionStorage.setItem(
-        draftKey(),
-        JSON.stringify(Object.fromEntries(new FormData(f))),
-      );
+    if (f.hasAttribute("data-news-article")) rememberDraft(f);
   }
 });
+function articleAction(f, publish) {
+  const x = { ...JSON.parse(f.dataset.action), ...Object.fromEntries(new FormData(f)), publish };
+  delete x.attachment;
+  delete x.camera;
+  const preview = f.querySelector("[data-preview]");
+  if (!preview.hidden && !x.removeImage) x.photo = preview.src;
+  return x;
+}
 main.addEventListener("submit", async (e) => {
   e.preventDefault();
   let f = e.target,
     d = new FormData(f),
     x = { ...JSON.parse(f.dataset.action), ...Object.fromEntries(d) };
   try {
-    if (x.type === "article") {
-      delete x.attachment;
-      delete x.camera;
-      const preview = f.querySelector("[data-preview]");
-      if (!preview.hidden && !x.removeImage) x.photo = preview.src;
+    if (x.type === "article") x = articleAction(f, e.submitter?.name === "publish");
+    if (x.type === "offer" && globalThis.crypto?.randomUUID) {
+      const choice = JSON.stringify([x.to, x.measure]);
+      if (f.dataset.offerChoice !== choice) {
+        f.dataset.offerChoice = choice;
+        f.dataset.offerRequest = crypto.randomUUID();
+      }
+      x.requestId = f.dataset.offerRequest;
     }
     if (x.type === "survey") x.sources = d.getAll("sources");
     if (x.type === "paper") {

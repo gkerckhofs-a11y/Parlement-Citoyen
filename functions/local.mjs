@@ -54,6 +54,7 @@ const publicFiles = {
   "/design/source-serif.woff2": ["design/source-serif.woff2", "font/woff2"],
   "/report.js": ["report.js", "text/javascript"],
   "/": ["index.html", "text/html"],
+  "/influence.js": ["influence.js", "text/javascript"],
   "/app.js": ["app.js", "text/javascript"],
   "/commission-desk.js": ["commission-desk.js", "text/javascript"],
   "/desk-flow.js": ["desk-flow.js", "text/javascript"],

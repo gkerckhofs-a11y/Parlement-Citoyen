@@ -5,6 +5,7 @@ import {
   act,
   token,
   ensureProjectionScreens,
+  readVisitCard,
 } from "./engine.mjs";
 import { demo, check } from "./scenario.mjs";
 import { timingSafeEqual, createHash, createHmac } from "node:crypto";
@@ -58,6 +59,13 @@ export function api(store, adminKey, google) {
         result = s.googleAdmin
           ? { code: s.code, id: "REG", google: true }
           : { code: s.code, id: "REG", key: token(s, "REG") };
+      } else if (op === "card") {
+        check(
+          typeof code === "string" && /^[A-F0-9]{10}$/.test(code) &&
+          typeof body.card === "string" && /^[A-Za-z0-9_-]{24}$/.test(body.card),
+          "Carte de visite invalide.",
+        );
+        result = readVisitCard(await store.get(code), body.card);
       } else {
         check(
           /^[A-F0-9]{10}$/.test(code) &&

@@ -43,6 +43,14 @@ const app = api(
   adminKey,
 );
 const publicFiles = {
+  "/participant-cards.js": ["participant-cards.js", "text/javascript"],
+  "/public-card.js": ["public-card.js", "text/javascript"],
+  "/vendor/qrcode-generator.js": [
+    "vendor/qrcode-generator.js",
+    "text/javascript",
+  ],
+  "/vendor/jsQR.js": ["vendor/jsQR.js", "text/javascript"],
+  "/qr-code.js": ["qr-code.js", "text/javascript"],
   "/admin": ["admin.html", "text/html"],
   "/projection-access.js": ["projection-access.js", "text/javascript"],
   "/plenary-desk.js": ["plenary-desk.js", "text/javascript"],
@@ -73,9 +81,11 @@ http
   .createServer((req, res) => {
     if (req.url.startsWith("/api/")) return app(req, res);
     const pathname = new URL(req.url, "http://localhost").pathname;
-    const f = pathname.startsWith("/projection/")
-      ? ["projection.html", "text/html"]
-      : publicFiles[pathname];
+    const f = pathname.startsWith("/carte/")
+      ? ["card.html", "text/html"]
+      : pathname.startsWith("/projection/")
+        ? ["projection.html", "text/html"]
+        : publicFiles[pathname];
     if (!Array.isArray(f)) {
       res.writeHead(404);
       return res.end();

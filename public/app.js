@@ -1,11 +1,12 @@
-import { influencePanel, influenceMeasures } from "./influence.js";
+import { citizenInfluencePanel, influencePanel, influenceMeasures } from "./influence.js?v=cartes1";
+import { showPersonalCard, showPublicCard, scanCard, printParticipantCards } from "./participant-cards.js?v=cartes1";
 import { plenaryDesk } from "./plenary-desk.js?v=vote3";
 import {
   projectionLink,
   projectionRoute,
   screenScope,
 } from "./projection-access.js";
-import { commissionDesk } from "./commission-desk.js?v=vote3";
+import { commissionDesk } from "./commission-desk.js?v=cartes1";
 import { reportRows } from "./report.js";
 import { editor } from "./editor.js";
 import {
@@ -95,6 +96,7 @@ let auth = projectorPage
   pending = false,
   last = "",
   noticeTimer;
+let showPrivateCard = false, scannedCard = null, selectedCitizenId = "";
 const hash = new URLSearchParams(location.hash.slice(1));
 if (projectorPage) {
   if (targetWall) {
@@ -113,6 +115,7 @@ if (projectorPage) {
     if (location.hash) history.replaceState(null, "", location.pathname);
   }
 } else if (hash.has("key")) {
+  tab = new Map([["vote","Vote"],["influence","Influence"],["carte","Ma carte"],["groupe","Mon équipe"]]).get(hash.get("rubrique")) || null;
   auth = { code: hash.get("code"), id: hash.get("id"), key: hash.get("key") };
   if (auth.id !== "ECR" && !auth.id?.startsWith("ECR-"))
     sessionStorage.setItem("pc.auth", JSON.stringify(auth));
@@ -220,7 +223,7 @@ const roomIcons = {
 };
 const indicators = ["heart-pulse", "leaf", "coins", "scale", "handshake"];
 const navIcons = {
-  Assemblée: "landmark",
+  Assemblée: "landmark", Vote: "vote", Influence: "handshake", "Ma carte": "users",
   Journal: "newspaper",
   "Mon équipe": "users",
   Rédaction: "pencil-line",
@@ -319,14 +322,10 @@ const pollLabel = (p) =>
     incident: "Scrutin interrompu",
   })[p.status] || p.status;
 function voterPoll() {
-  if (role() !== "Citoyen") return null;
-  if (v.phase === "Plénière")
-    return v.polls.filter((p) => p.kind === "plenary" && p.eligible).at(-1);
-  if (v.phase === "Commissions")
-    return v.polls.find(
-      (p) => p.eligible && p.kind !== "plenary" && p.status !== "annoncé",
-    );
-  return null;
+  if (role() !== "Citoyen" || v.phase === "Préparation") return null;
+  const plenary = v.phase === "Plénière" || v.phase === "Débriefing";
+  return v.polls.filter(p => plenary ? p.kind === "plenary" :
+    p.kind !== "plenary" && p.room === v.me.room).at(-1);
 }
 
 function polls(r, commissionOnly = false, source = v.polls) {
@@ -354,26 +353,26 @@ function polls(r, commissionOnly = false, source = v.polls) {
       if (p.expected !== undefined)
         body += para(p.received + " / " + p.expected + " bulletins reçus");
       if (p.voted) body += para("Vote enregistré");
-      else if (p.eligible && p.status === "ouvert")
+      else if (p.eligible && v.me.present !== false && p.status === "ouvert")
         body += form(
           { type: "vote", poll: p.id },
-          "<fieldset><legend>" +
+          '<fieldset class="ballot-options"><legend>' +
             h(
-              "Choisissez au maximum " +
-                p.seats +
-                " option(s). Un bulletin vide vaut abstention.",
+              (p.seats === 1 ? "Choisissez une option." : "Choisissez jusqu’à " + p.seats + " options.") +
+                " Pour vous abstenir, enregistrez un bulletin vide.",
             ) +
             "</legend>" +
             p.options
               .map(
                 (id) =>
-                  '<label><input type="checkbox" name="choices" value="' +
+                  '<label><input type="' + (p.seats === 1 ? "radio" : "checkbox") + '" name="choices" value="' +
                   h(id) +
                   '">' +
                   h(name(id)) +
                   "</label>",
               )
               .join("") +
+            (p.seats === 1 ? '<label><input type="radio" name="choices" value="">Je m’abstiens</label>' : '') +
             "</fieldset>",
           "Enregistrer mon bulletin",
         );
@@ -463,21 +462,21 @@ function polls(r, commissionOnly = false, source = v.polls) {
 }
 function citizenBallotPanel() {
   const ballot = voterPoll();
-  if (!ballot) return "";
-  if (tab !== "Assemblée")
-    return ballot.status === "ouvert" && !ballot.voted
-      ? '<button type="button" data-tab="Assemblée">Accéder à mon bulletin</button>'
-      : "";
-  const place =
-    (ballot.kind === "plenary" ? "Plénière · " : "Commission · ") +
-    v.roomNames[ballot.room];
-  return (
-    '<section class="current-ballot" aria-label="Scrutin de la séance"><h2>' +
-    h(place) +
-    "</h2>" +
-    polls(ballot.room, false, [ballot]) +
-    "</section>"
-  );
+  const heading = v.phase === "Plénière" || v.phase === "Débriefing" ? "Vote de plénière" : "Vote de ma commission";
+  const place = v.roomNames[ballot?.room || v.me.room];
+  let body;
+  if (!ballot) {
+    body = para(v.me.present === false ? "Vous êtes signalé absent. Adressez-vous à l’animateur de votre commission." :
+      v.phase === "Préparation" ? "Le premier bulletin sera disponible lorsque votre commission ouvrira un vote." :
+      v.phase === "Débriefing" ? "Les votes sont terminés." :
+      "Aucun vote ouvert pour le moment. Le bulletin apparaîtra ici dès l’ouverture du scrutin.");
+  } else {
+    body = polls(ballot.room, false, [ballot]);
+    if (ballot.status === "ouvert" && (!ballot.eligible || v.me.present === false))
+      body = para("Vous ne figurez pas parmi les votants de ce scrutin. L’animateur peut vérifier votre présence.") + body;
+  }
+  return '<section class="current-ballot" aria-label="Mon vote"><h2>' + h(heading) + '</h2>' +
+    (place ? '<p class="vote-place">' + h(place) + '</p>' : '') + body + '</section>';
 }
 function proposals(r) {
   return v.amends
@@ -995,7 +994,7 @@ function team() {
           ),
     );
   }
-  out += influencePanel(v, { section, para, opts, btn, form });
+  if (role() === "Lobby") out += influencePanel(v, { section, para, opts, btn, form }, {recipient:selectedCitizenId});
   return out + groupConversation();
 }
 function journal() {
@@ -1146,6 +1145,10 @@ function accessPanels() {
   if (!v.roster) return "";
   let html = "";
   if (["AC20360001", "AC20360002", "AC20360003"].includes(v.code)) {
+    if (v.code === "AC20360001") html += '<section class="access-panel"><h3>Essayer un citoyen en commission</h3><div>' +
+      '<a class="desk-link" target="_blank" rel="noopener" href="/admin?session=AC20360001&amp;essai=vote">Vote de Soins · C2</a>' +
+      '<a class="desk-link" target="_blank" rel="noopener" href="/admin?session=AC20360001&amp;essai=influence">Influence en Prévention · C1</a>' +
+      '<a class="desk-link" target="_blank" rel="noopener" href="/admin?session=AC20360001&amp;essai=lobby">Proposer un point · L1</a></div></section>';
     const roles = {
       Citoyen: "Citoyen",
       Lobby: "Groupe d’influence",
@@ -1342,6 +1345,8 @@ function admin() {
             ? btn("Diffuser aux rédactions", { type: "wire", id: w.id }) : tag("À diffuser")))).join(""));
     out += details(
       "Accès et présences · " + v.roster.length,
+      '<div class="actions">' + btn("Imprimer les cartes de visite", {ui:"printCards"},true) +
+      btn("Imprimer les accès privés", {ui:"printCards",private:true},true) + '</div>' +
       btn("Télécharger les accès", { ui: "access" }) +
         v.roster
           .map(
@@ -1779,9 +1784,11 @@ function render() {
   if (participant)
     sessionLabel.textContent =
       role() === "Lobby" ? "Groupe d’influence" : role();
-  let tabs = ["Assemblée", "Journal"];
+  const citizen = role() === "Citoyen";
+  let tabs = citizen ? ["Assemblée","Vote","Influence","Journal"] : ["Assemblée","Journal"];
   if (v.me.group) tabs.push("Mon équipe");
   if (role() === "Journaliste") tabs.push("Rédaction");
+  if (v.myCard) tabs.push("Ma carte");
   if (chair()) tabs.push("Régie");
   if (v.balance) tabs.push("Débriefing");
   if (!tabs.includes(tab)) {
@@ -1851,14 +1858,14 @@ function render() {
       .join("") +
     btn("Quitter", { ui: "exit" }, true) +
     "</nav>" +
-    (tab !== "Mon équipe" && role() === "Citoyen" && v.me.present !== false &&
-      v.phase === "Commissions" && !v.rooms[v.me.room]?.locked &&
-      v.offers?.some((offer) => offer.status === "proposé")
-      ? '<button type="button" data-tab="Mon équipe">Voir les propositions d’influence reçues</button>'
-      : "") +
-    citizenBallotPanel() +
+    (citizen && tab === "Assemblée" ? citizenBallotPanel() + citizenInfluencePanel(v,{h,btn},{compact:true}) : "") +
     {
       Assemblée: assembly,
+      Vote: citizenBallotPanel,
+      Influence: () => citizenInfluencePanel(v,{h,btn}),
+      "Ma carte": () => scannedCard
+        ? showPublicCard(scannedCard,role() === "Lobby" ? v : null,{h,btn}) + btn("Revenir à ma carte", {ui:"ownCard"}, true)
+        : showPersonalCard(v.myCard,link({...v.me,key:auth.key}),showPrivateCard,{h,btn}),
       Journal: journal,
       "Mon équipe": team,
       Rédaction: newsroom,
@@ -1991,11 +1998,28 @@ async function run(x) {
   if (pending) return;
   pending = true;
   try {
+    if (x.ui === "scanCard" && v.myCard) {
+      scanCard({session:v.code,lookup:target=>call("card",target),onCard:person=>{
+        scannedCard = person; showPrivateCard = false; tab = "Ma carte"; render(); window.scrollTo(0,0);
+      }});
+      return;
+    }
+    if (x.ui === "useRecipient" && role() === "Lobby" && scannedCard?.id === x.id && scannedCard.code === v.code) {
+      selectedCitizenId = x.id; scannedCard=null; tab="Mon équipe"; render();
+      main.querySelector(".influence-lobby, [data-command*='scanCard']")?.closest("article")?.scrollIntoView({block:"start"}); return;
+    }
+    if (x.ui === "cardPrivacy" || x.ui === "ownCard") {
+      if (!v.myCard) return;
+      scannedCard=null; showPrivateCard=x.ui==="cardPrivacy" && x.private===true;
+      render(); return;
+    }
+    if (x.ui === "printCards" && v.roster) { printParticipantCards(v, x.private===true, {h,link}); return; }
     if (x.ui === "editor") {
       editor(document.querySelector("#scenario-editor"), v.template, say);
       return;
     }
     if (x.ui === "exit") {
+      scannedCard=null; selectedCitizenId=""; showPrivateCard=false;
       observingAsModerator = false;
       preparedMeasures.clear();
       const url = new URL(location.href);
@@ -2118,6 +2142,7 @@ async function run(x) {
         if (!x.reason?.trim()) return;
       }
       await call("action", { ...auth, action: x });
+      if (x.type === "offer") selectedCitizenId="";
       say(
         x.type === "article" ? (x.publish ? (v.reviewArticles ? "Article transmis à la régie pour relecture." : "Article publié dans le journal.") : "Brouillon enregistré pour votre rédaction.") :
         x.type === "vote"
@@ -2191,6 +2216,7 @@ main.addEventListener("click", (e) => {
     return;
   }
   if (b.dataset.tab) {
+    showPrivateCard = false; scannedCard = null;
     tab = b.dataset.tab;
     render();
   }
@@ -2203,6 +2229,7 @@ main.addEventListener("click", (e) => {
 main.addEventListener("change", async (e) => {
   const input = e.target;
   if (input.name === "to" && input.form?.elements.measure && v?.targets) {
+    selectedCitizenId = input.value;
     const choices = influenceMeasures(v, input.value);
     input.form.elements.measure.replaceChildren(...choices.map(([id, title]) => new Option(title, id)));
     return;
@@ -2278,7 +2305,7 @@ main.addEventListener("submit", async (e) => {
           .map(([k, n]) => [k.slice(4), Number(n)]),
       );
     }
-    if (x.type === "vote") x.choices = d.getAll("choices");
+    if (x.type === "vote") x.choices = d.getAll("choices").filter(Boolean);
     if (x.ui === "create") {
       x.pack = x.pack.size ? JSON.parse(await x.pack.text()) : null;
       x.settings = {};
@@ -2317,7 +2344,14 @@ if (projectorPage) {
   if (auth?.google)
     location.replace("/admin?session=" + encodeURIComponent(auth.code));
   else if (auth)
-    refresh(true).catch((e) => {
+    refresh(true).then(async () => {
+      const card = hash.get("carte");
+      if (!card || role() !== "Lobby") return;
+      history.replaceState(null,"",location.pathname);
+      try {
+        scannedCard=await call("card",{code:v.code,card}); tab="Ma carte"; render();
+      } catch(e) { say(e.message); }
+    }).catch((e) => {
       say(e.message);
       login();
     });

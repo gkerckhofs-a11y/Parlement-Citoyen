@@ -12,6 +12,13 @@ Avec Node.js 22, lancer `npm start` puis ouvrir http://localhost:8080. La clé d
 4. Dans **Conduire la séance**, la prochaine action est indiquée par son nom. Débattre sur la proposition déjà à l’écran. Si un amendement est admis, le présenter, puis ouvrir son vote. Les élèves habilités choisissent sur leur appareil et enregistrent leur bulletin. **Clore le vote** arrête les réponses. **Annoncer et projeter le résultat** révèle la décision à la salle. Après les propositions et les amendements, ouvrir le vote qui désigne les deux finalistes. Les commandes manuelles et le minuteur restent accessibles dans **Choisir un texte ou un vote**.
 5. Une fois les deux finalistes de chaque salle annoncés, choisir **Piloter la plénière** en régie générale, ou utiliser l’accès personnel de la présidence. Présenter chaque finaliste et sa clause adoptée, le cas échéant. Comparer les deux textes, ouvrir le vote de tous les citoyens présents, le clore puis en annoncer le résultat. Le texte retenu reste à l’écran jusqu’au prochain geste de la présidence. Après les duels, ouvrir le débriefing pour projeter le plan adopté, les indicateurs et le journal du futur.
 
+### Vote, influence et cartes des joueurs
+
+Chaque citoyen a un onglet **Vote** pour son bulletin ou l’état du scrutin et un onglet **Influence** pour ses offres. Un lobby peut ouvrir **Mon groupe → Scanner une carte de visite**, lire la carte d’un citoyen, puis choisir la mesure et confirmer l’offre. Le citoyen peut accepter ou refuser dans son interface.
+
+Chaque joueur retrouve ses deux QR dans **Ma carte**. La carte de visite partage l’identité de jeu. Le bouton **Afficher mon QR d’accès privé** révèle le code personnel qui permet de reprendre ce rôle. Dans **Accès et présences**, la régie imprime séparément les cartes de visite à montrer et les accès privés à remettre aux joueurs.
+
+
 ## Scénarios
 
 Le scénario public de répétition porte sur l’école. Les données internes d’Urgence citoyenne sont distribuées séparément. Ne pas placer le fichier pilote, les accès ou une sauvegarde dans Git ou dans le dossier Hosting. Seule la régie peut télécharger et éditer la copie intégrale. Une nouvelle session adopte la version importée. Les points des profils utilisent des entiers doublés. Les tendances qualitatives sont saisies séparément.

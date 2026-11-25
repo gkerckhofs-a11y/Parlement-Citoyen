@@ -1,5 +1,5 @@
 import { deskFlow, slidePicker } from "./desk-flow.js?v=vote3";
-import { deskPreview } from "./commission-desk.js?v=vote3";
+import { deskPreview } from "./commission-desk.js?v=cartes1";
 
 export function plenaryDesk(v, preparedRoom, ui) {
   const { h, btn, para, details, deskLink, name, icon } = ui;

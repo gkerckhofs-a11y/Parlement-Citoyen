@@ -38,6 +38,37 @@ async function api(op, body = {}) {
 async function enter(code) {
   const state = await api("view", { code, id: "REG" });
   const url = new URL(location.href);
+  const rehearsal =
+    url.searchParams.get("session") === code &&
+    code === "AC20360001" &&
+    url.searchParams.get("essai");
+  if (rehearsal) {
+    const trials = new Map([
+      ["vote", ["C2", "vote"]],
+      ["influence", ["C1", "influence"]],
+      ["carte", ["C1", "carte"]],
+      ["lobby", ["L1", "groupe"]],
+    ]);
+    const selected = trials.get(rehearsal);
+    const person =
+      selected &&
+      state.roster?.find(
+        (member) =>
+          member.id === selected[0] &&
+          ["Citoyen", "Lobby"].includes(member.role),
+      );
+    if (!person) throw Error("Ce profil de répétition est indisponible.");
+    location.replace(
+      "/#" +
+        new URLSearchParams({
+          code,
+          id: person.id,
+          key: person.key,
+          rubrique: selected[1],
+        }),
+    );
+    return;
+  }
   const target =
     url.searchParams.get("session") === code &&
     url.searchParams.get("projection");
@@ -49,9 +80,9 @@ async function enter(code) {
     location.replace(path);
     return;
   }
-  const { openGoogleDesk } = await import("./app.js?v=joueurs1");
+  const { openGoogleDesk } = await import("./app.js?v=cartes1");
   if (url.searchParams.get("session") !== code) {
-    for (const name of ["commission", "projection", "regie"])
+    for (const name of ["commission", "projection", "regie", "essai"])
       url.searchParams.delete(name);
   }
   url.searchParams.set("session", code);
@@ -137,6 +168,21 @@ async function home() {
           title?.scrollIntoView({ block: "start" });
         }),
       );
+      if (s.code === "AC20360001") {
+        for (const [target, label] of [
+          ["vote", "Essayer le vote · C2"],
+          ["influence", "Essayer l’influence · C1"],
+          ["lobby", "Scanner comme lobby · L1"],
+        ]) {
+          const shortcut = el("a", label);
+          shortcut.className = "desk-link";
+          shortcut.href =
+            "/admin?" + new URLSearchParams({ session: s.code, essai: target });
+          shortcut.target = "_blank";
+          shortcut.rel = "noopener";
+          card.append(shortcut);
+        }
+      }
       grid.append(card);
     }
   }

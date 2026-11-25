@@ -11,6 +11,10 @@
         "destination": "/admin.html"
       },
       {
+        "source": "/carte/**",
+        "destination": "/card.html"
+      },
+      {
         "source": "/projection/**",
         "destination": "/projection.html"
       },

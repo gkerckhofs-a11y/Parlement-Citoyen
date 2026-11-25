@@ -20,6 +20,39 @@ export const token = (s, id) =>
     .update(id + ":" + (s.members[id].epoch || 0))
     .digest("base64url")
     .slice(0, 22);
+const cardRoles = new Set(["Citoyen", "Lobby", "Journaliste"]);
+const cardId = (s, id) => createHmac("sha256", s.secret)
+  .update("public-card/v1\0" + s.code + "\0" + id)
+  .digest("base64url").slice(0, 24);
+
+function memberGroup(pack, member) {
+  const index = Number(member.group.slice(1));
+  if (member.role === "Citoyen") return pack.territories[index];
+  if (member.role === "Lobby") return pack.lobbies[index];
+  return { name: pack.media[index], mission: "Enquêtez, identifiez vos sources et choisissez votre angle." };
+}
+
+function visitCard(s, member, card = cardId(s, member.id)) {
+  return {
+    code: s.code,
+    card,
+    id: member.id,
+    role: member.role,
+    groupName: memberGroup(s.pack, member)?.name || member.group,
+    room: member.room,
+    roomName: s.pack.rooms[member.room] || "",
+  };
+}
+
+export function readVisitCard(s, card) {
+  check(typeof card === "string" && /^[A-Za-z0-9_-]{24}$/.test(card), "Carte de visite invalide.");
+  const wanted = Buffer.from(card, "ascii");
+  const member = Object.values(s.members).find((m) =>
+    cardRoles.has(m.role) && timingSafeEqual(Buffer.from(cardId(s, m.id)), wanted));
+  check(member, "Carte de visite invalide.");
+  return visitCard(s, member, card);
+}
+
 export function create(pack, n, review = false, custom = {}) {
   validate(pack);
   check(
@@ -1254,10 +1287,7 @@ export function view(s, a) {
     ).length,
   }));
   if (a.group) {
-    const index = Number(a.group.slice(1));
-    const group = a.role === "Citoyen" ? pack.territories[index]
-      : a.role === "Lobby" ? pack.lobbies[index]
-      : { name: mediaName(a.group), mission: "Enquêtez, identifiez vos sources et choisissez votre angle." };
+    const group = memberGroup(pack, a);
     result.team = {
       name: group?.name || a.group,
       mission: group?.mission,
@@ -1274,6 +1304,7 @@ export function view(s, a) {
       result.messages = s.messages.filter((message) => message.group === a.group);
     }
   }
+  if (cardRoles.has(a.role)) result.myCard = visitCard(s, a);
   if (a.role === "Lobby" || a.role === "Citoyen") {
     result.offers = s.offers
       .filter((o) => a.role === "Lobby" ? o.group === a.group : o.to === a.id)
@@ -1315,6 +1346,7 @@ export function view(s, a) {
     result.roster = Object.values(s.members).map((v) => ({
       ...v,
       key: token(s, v.id),
+      ...(cardRoles.has(v.role) ? { card: visitCard(s, v) } : {}),
     }));
     result.reports = s.reports.map((v) => ({
       ...v,

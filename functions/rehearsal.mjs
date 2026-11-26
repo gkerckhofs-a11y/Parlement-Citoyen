@@ -8,10 +8,11 @@ export const rehearsals = [
   ["AC20360002", "Plénière", "Huit finalistes et un premier duel ouvert"],
   ["AC20360003", "Débriefing", "Plan adopté, journal 2040, sondage et exports"],
 ];
-export function rehearsal(pack, index) {
+export const influenceTrials = ["AC20360004","AC20360005","AC20360006"];
+export function rehearsal(pack, index, rulesVersion = 1) {
   const [code, label] = rehearsals[index],
-    s = create(structuredClone(pack), 100, true);
-  s.code = code;
+    s = create(structuredClone(pack), 100, rulesVersion === 1 || index !== 0, {rulesVersion});
+  s.code = rulesVersion === 2 ? influenceTrials[index] : code;
   s.googleAdmin = true;
   s.pack.title = "Répétition · " + label + " · " + pack.title;
   const run = (id, type, props = {}) =>
@@ -30,14 +31,14 @@ export function rehearsal(pack, index) {
     publish: true,
   });
   const article = s.articles[0].id;
-  reg("editorial", { id: article, accept: true });
+  if (s.review) reg("editorial", { id: article, accept: true });
   run("J1", "front", { id: article });
   run("C5", "read", { id: article });
   run("C9", "read", { id: article });
   run("J2", "article", {
     title: "La parole aux territoires",
     text: "Article d’exercice en attente de relecture.",
-    publish: true,
+    publish: rulesVersion === 1,
     wire: "D02",
   });
   run("J3", "article", {
@@ -71,6 +72,7 @@ export function rehearsal(pack, index) {
   }
   function finish(p) {
     reg("close", { poll: p.id });
+    if (rulesVersion === 2 && p.kind === "plenary" && !p.round) reg("revealOrdinary", {poll:p.id});
     reg("announce", { poll: p.id });
   }
   function selection(room) {
@@ -78,6 +80,26 @@ export function rehearsal(pack, index) {
     for (let id of p.eligible)
       run(id, "vote", { poll: p.id, choices: [room + "1", room + "2"] });
     finish(p);
+  }
+  function opinionRoom(room, tied = false) {
+    const measures = pack.measures.filter(m => m.room === room);
+    measures.forEach((m, i) => {
+      const ballot = poll(room, "opinion", m.id);
+      ballot.eligible.forEach((id, j) => {
+        // Two leading measures. Rotating the voting citizens leaves room in their reserves.
+        const count = i === 0 ? 6 : i === 1 || (tied && i === 2) ? 4 : 1;
+        const chosen = (j + 3 * i) % ballot.eligible.length < count;
+        run(id, "vote", {poll:ballot.id, choices:chosen ? ["pour"] : []});
+      });
+      finish(ballot);
+    });
+  }
+  if (index === 0 && rulesVersion === 2) {
+    const ballot = poll("C","opinion","C1");
+    ballot.eligible.slice(2,7).forEach(id => run(id,"vote",{poll:ballot.id,choices:["pour"]}));
+    opinionRoom("E", true);
+    opinionRoom("S");
+    return s;
   }
   if (index === 0) {
     let c = poll("C", "selection");
@@ -102,7 +124,10 @@ export function rehearsal(pack, index) {
   for (let id of ap.eligible)
     run(id, "vote", { poll: ap.id, choices: [amend] });
   finish(ap);
-  for (let room of Object.keys(s.rooms)) selection(room);
+  for (let room of Object.keys(s.rooms)) {
+    if (rulesVersion === 2) opinionRoom(room);
+    else selection(room);
+  }
   reg("phase");
   for (let room of Object.keys(s.rooms)) {
     let p = poll(room, "plenary");
@@ -111,6 +136,7 @@ export function rehearsal(pack, index) {
       run(id, "vote", {
         poll: p.id,
         choices: i % 9 === 0 ? [] : [room + (i % 3 === 0 ? "2" : "1")],
+        ...(rulesVersion === 2 ? {boost: i % 9 === 1 && room === "P"} : {}),
       }),
     );
     finish(p);

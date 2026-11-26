@@ -73,3 +73,35 @@ test("Les accès de régie Google sont contrôlés pour la liste, la vue et les 
     1,
   );
 });
+
+test("Les répétitions d’influence s’ouvrent séparément et conservent les essais déjà effectués", async () => {
+  const pack = structuredClone(demo);
+  pack.dispatches.push({id:"D02",title:"Deuxième dépêche",text:"Exercice."});
+  const sessions = new Map([["AC20360001", {pack}]]);
+  const store = {
+    async get(code) {
+      if (!sessions.has(code)) throw Error("Session introuvable");
+      return sessions.get(code);
+    },
+    async create(s) { sessions.set(s.code,s); },
+  };
+  const handler = api(store, "", {async verify(bearer) {
+    if (bearer !== "Bearer régie") throw Error("Connexion requise");
+  }});
+  async function open(code, authorization) {
+    const response = {setHeader(){}, end(body){ this.body = JSON.parse(body); }};
+    await handler({method:"POST",url:"/api/open-rehearsal",headers:{"content-type":"application/json",authorization},body:{code}},response);
+    return response;
+  }
+  assert.equal((await open("AC20360004")).statusCode,400);
+  assert.equal((await open("AC20360001","Bearer régie")).statusCode,400);
+  const first = (await open("AC20360004","Bearer régie")).body;
+  assert.equal(first.rulesVersion,2);
+  assert.equal(first.polls.find(p => p.room === "C").kind,"opinion");
+  const state = sessions.get("AC20360004");
+  const { act } = await import("../functions/engine.mjs");
+  act(state,state.members.C2,{type:"vote",poll:first.polls.find(p => p.room === "C").id,choices:["pour"]});
+  const second = (await open("AC20360004","Bearer régie")).body;
+  assert.equal(second.polls.find(p => p.room === "C").received,first.polls.find(p => p.room === "C").received + 1);
+  assert.equal(sessions.get("AC20360001").pack,pack);
+});

@@ -44,6 +44,7 @@ const app = api(
 );
 const publicFiles = {
   "/participant-cards.js": ["participant-cards.js", "text/javascript"],
+  "/press-influence.js": ["press-influence.js", "text/javascript"],
   "/public-card.js": ["public-card.js", "text/javascript"],
   "/vendor/qrcode-generator.js": [
     "vendor/qrcode-generator.js",
@@ -62,6 +63,7 @@ const publicFiles = {
   "/design/source-serif.woff2": ["design/source-serif.woff2", "font/woff2"],
   "/report.js": ["report.js", "text/javascript"],
   "/": ["index.html", "text/html"],
+  "/citizen-ballot.js": ["citizen-ballot.js", "text/javascript"],
   "/influence.js": ["influence.js", "text/javascript"],
   "/app.js": ["app.js", "text/javascript"],
   "/commission-desk.js": ["commission-desk.js", "text/javascript"],

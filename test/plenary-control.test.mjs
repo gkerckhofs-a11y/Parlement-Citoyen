@@ -5,7 +5,7 @@ import { demo } from "../functions/scenario.mjs";
 import { plenarySlides } from "../functions/plenary.mjs";
 
 function inPlenary() {
-  const session = create(structuredClone(demo), 50);
+  const session = create(structuredClone(demo), 50, false, { rulesVersion: 1 });
   const run = (id, type, data = {}) => act(session, session.members[id], { type, ...data });
   run("PRE", "phase");
   for (const [room, state] of Object.entries(session.rooms))

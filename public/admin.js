@@ -35,16 +35,18 @@ async function api(op, body = {}) {
   if (!r.ok) throw Error(j.error);
   return j;
 }
+const influenceTrials = ["AC20360004","AC20360005","AC20360006"];
 async function enter(code) {
-  const state = await api("view", { code, id: "REG" });
+  const state = await api(influenceTrials.includes(code) ? "open-rehearsal" : "view", { code, id: "REG" });
   const url = new URL(location.href);
   const rehearsal =
     url.searchParams.get("session") === code &&
-    code === "AC20360001" &&
+    (code === "AC20360001" || influenceTrials.includes(code)) &&
     url.searchParams.get("essai");
   if (rehearsal) {
     const trials = new Map([
-      ["vote", ["C2", "vote"]],
+      ["vote", [code === "AC20360005" ? "C1" : "C2", "vote"]],
+      ["presse", ["J1", "redaction"]],
       ["influence", ["C1", "influence"]],
       ["carte", ["C1", "carte"]],
       ["lobby", ["L1", "groupe"]],
@@ -55,7 +57,7 @@ async function enter(code) {
       state.roster?.find(
         (member) =>
           member.id === selected[0] &&
-          ["Citoyen", "Lobby"].includes(member.role),
+          ["Citoyen", "Lobby", "Journaliste"].includes(member.role),
       );
     if (!person) throw Error("Ce profil de répétition est indisponible.");
     location.replace(
@@ -80,7 +82,7 @@ async function enter(code) {
     location.replace(path);
     return;
   }
-  const { openGoogleDesk } = await import("./app.js?v=cartes1");
+  const { openGoogleDesk } = await import("./app.js?v=reserve1");
   if (url.searchParams.get("session") !== code) {
     for (const name of ["commission", "projection", "regie", "essai"])
       url.searchParams.delete(name);
@@ -135,12 +137,33 @@ async function home() {
     }
   }
   const { sessions } = await api("admin-list");
+  if (sessions.some(s => s.code === "AC20360001")) {
+    main.append(el("h2","Répétitions · Votes et influence"));
+    const grid = el("div");
+    grid.className = "grid";
+    for (const [i, title] of ["Commissions", "Plénière", "Débriefing"].entries()) {
+      const block = el("article");
+      block.className = "session-card";
+      block.append(el("h3",title),button("Ouvrir la régie",() => enter(influenceTrials[i])));
+      const links = i === 0 ? [["vote","Voter · C2"],["influence","Réserve et offre · C1"],["presse","Citer un citoyen · J1"],["lobby","Proposer un point · L1"]] :
+        i === 1 ? [["vote","Voter et renforcer · C1"]] : [];
+      for (const [essai,label] of links) {
+        const a = el("a",label);
+        a.className = "desk-link";
+        a.href = "/admin?" + new URLSearchParams({session:influenceTrials[i],essai});
+        a.target = "_blank"; a.rel = "noopener";
+        block.append(a);
+      }
+      grid.append(block);
+    }
+    main.append(grid);
+  }
   for (const [title, items] of [
     [
-      "Répétition · Urgence citoyenne",
+      "Répétitions · Règles initiales",
       sessions.filter((s) => scenarios[s.code]),
     ],
-    ["Autres sessions", sessions.filter((s) => !scenarios[s.code])],
+    ["Autres sessions", sessions.filter((s) => !scenarios[s.code] && !influenceTrials.includes(s.code))],
   ]) {
     if (!items.length) continue;
     main.append(el("h2", title));

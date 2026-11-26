@@ -21,7 +21,7 @@ export function parseCard(value, origin = location.origin) {
 function identity(person, h) {
   return (
     "<h2>" +
-    h(person.id) +
+    h([person.gameName, person.id].filter(Boolean).join(" · ")) +
     " · " +
     h(person.role) +
     "</h2><p>" +

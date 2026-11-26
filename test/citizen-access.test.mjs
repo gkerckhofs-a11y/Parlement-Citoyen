@@ -36,7 +36,7 @@ test("La répétition présente une offre à répondre, un point accepté et les
 });
 
 test("Deux bulletins opposés laissent les mêmes vues personnelles pour le citoyen, le lobby et la projection", () => {
-  const s = create(demo, 50);
+  const s = create(demo, 50, false, {rulesVersion:1});
   issue(s, "REG", { type: "phase" });
   issue(s, "L1", { type: "offer", to: "C1", measure: "P1" });
   issue(s, "C1", { type: "respond", offer: s.offers[0].id, accept: true });
@@ -54,7 +54,7 @@ test("Deux bulletins opposés laissent les mêmes vues personnelles pour le cito
 });
 
 test("Le retour d’un citoyen absent conserve l’électorat enregistré à l’ouverture", () => {
-  const s = create(demo, 50);
+  const s = create(demo, 50, false, {rulesVersion:1});
   issue(s, "REG", { type: "phase" });
   issue(s, "REG", { type: "presence", member: "C2", present: false });
   issue(s, "REG", { type: "open", room: "C", kind: "selection" });

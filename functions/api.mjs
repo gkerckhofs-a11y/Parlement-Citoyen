@@ -6,7 +6,9 @@ import {
   token,
   ensureProjectionScreens,
   readVisitCard,
+  previewPressAwards,
 } from "./engine.mjs";
+import { rehearsals, rehearsal, influenceTrials } from "./rehearsal.mjs";
 import { demo, check } from "./scenario.mjs";
 import { timingSafeEqual, createHash, createHmac } from "node:crypto";
 const hash = (v) => createHash("sha256").update(String(v)).digest();
@@ -38,6 +40,26 @@ export function api(store, adminKey, google) {
       const bearer = req.headers.authorization;
       if (op === "prepare-rehearsals" && google) {
         result = await google.install(store, body);
+      } else if (op === "open-rehearsal" && google) {
+        await google.verify(bearer);
+        const i = influenceTrials.indexOf(code);
+        check(i >= 0, "Répétition inconnue");
+        let session;
+        try {
+          session = await store.get(code);
+        } catch (error) {
+          if (error.message !== "Session introuvable") throw error;
+          const previous = await store.get(rehearsals[i][0]);
+          const pack = {...previous.pack, title:previous.pack.title.replace(/^Répétition · [^·]+ · /, "")};
+          const trial = rehearsal(pack, i, 2);
+          try { await store.create(trial); session = trial; }
+          catch (writeError) {
+            if (writeError.code !== 6) throw writeError;
+            session = await store.get(code);
+          }
+        }
+        check(session.googleAdmin && session.rulesVersion === 2, "Répétition indisponible");
+        result = view(session, session.members.REG);
       } else if (op === "admin-list" && google) {
         await google.verify(bearer);
         result = { sessions: await store.list() };
@@ -69,7 +91,7 @@ export function api(store, adminKey, google) {
       } else {
         check(
           /^[A-F0-9]{10}$/.test(code) &&
-            ["view", "action", "picture"].includes(op),
+            ["view", "action", "picture", "press-preview"].includes(op),
           "Session ou commande invalide",
         );
         let googleAccess = false;
@@ -78,12 +100,13 @@ export function api(store, adminKey, google) {
           googleAccess = true;
         }
         const handle = (s, savePicture) => {
-          ensureProjectionScreens(s);
+          if (op !== "press-preview") ensureProjectionScreens(s);
           check(
             id !== "REG" || !s.googleAdmin || googleAccess,
             "Connexion Google requise.",
           );
           let a = googleAccess ? s.members.REG : identify(s, id, key);
+          if (op === "press-preview") return previewPressAwards(s, a, body);
           if (op === "action") {
             if (action?.type === "article") {
               const { photo, image: ignored, ...draft } = action;

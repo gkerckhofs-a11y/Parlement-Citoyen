@@ -7,6 +7,7 @@ import {
 } from "node:crypto";
 import { plenarySlides, currentSlide, publishedAmendment, hasPendingAmendments, presentationRoute } from "./plenary.mjs";
 import { check, validate, dimensions } from "./scenario.mjs";
+import { walletCap, walletPoints, creditPoint, applyBallotPoints, cancelBallotPoints } from "./influence.mjs";
 const now = () => new Date().toISOString();
 const str = (v, max = 2400) => {
   check(
@@ -38,6 +39,7 @@ function visitCard(s, member, card = cardId(s, member.id)) {
     card,
     id: member.id,
     role: member.role,
+    ...(member.gameName ? { gameName: member.gameName } : {}),
     groupName: memberGroup(s.pack, member)?.name || member.group,
     room: member.room,
     roomName: s.pack.rooms[member.room] || "",
@@ -79,6 +81,7 @@ export function create(pack, n, review = false, custom = {}) {
   check(nt >= 2, "Deux territoires par commission sont nécessaires");
   let s = {
     code: randomBytes(5).toString("hex").toUpperCase(),
+    rulesVersion: custom.rulesVersion ?? 2,
     secret: randomBytes(32).toString("hex"),
     pack,
     phase: "Préparation",
@@ -98,6 +101,7 @@ export function create(pack, n, review = false, custom = {}) {
     notices: [],
     jt: -1,
   };
+  check([1, 2].includes(s.rulesVersion), "Version des règles inconnue.");
   s.minGroup = custom.minGroup ?? 5;
   check(
     Number.isInteger(s.minGroup) && s.minGroup >= 3 && s.minGroup <= 30,
@@ -240,6 +244,7 @@ function start(s, room, kind, options, seats, extra = {}) {
     raw: {},
     active: {},
     abstain: 0,
+    ...(s.rulesVersion === 2 ? {rulesVersion: 2} : {}),
     ...extra,
   };
   p.eligible = electorate(s, p).map((a) => a.id);
@@ -255,8 +260,8 @@ export function tally(p) {
   let n = p.paper?.count ?? Object.keys(p.receipts).length,
     k = Object.values(p.active).reduce((a, b) => a + b, 0);
   // Integer numerators preserve exact ties at the 10% cap.
-  let denominator = k ? 10 * k : 1,
-    unit = k ? Math.min(5 * k, n) : 0;
+  let denominator = k && p.rulesVersion !== 2 ? 10 * k : 1,
+    unit = p.rulesVersion === 2 ? 1 : k ? Math.min(5 * k, n) : 0;
   let rows = p.options
     .map((id) => ({
       id,
@@ -265,23 +270,54 @@ export function tally(p) {
       weight: (p.raw[id] || 0) * denominator + (p.active[id] || 0) * unit,
     }))
     .sort((a, b) => b.weight - a.weight);
-  let cut = rows[Math.min(p.seats, rows.length) - 1].weight,
-    top = rows.filter((x) => x.weight > cut).map((x) => x.id),
-    tied = rows.filter((x) => x.weight === cut).map((x) => x.id);
-  if (top.length + tied.length === p.seats) {
-    top.push(...tied);
-    tied = [];
-  }
   return {
     rows,
-    top,
-    tied,
+    ...places(rows, p.seats),
     voters: n,
     absent: p.eligible.length - n,
     abstain: p.abstain,
     expressed: n - p.abstain,
     denominator,
+    ...(p.kind === "opinion" ? {score: (p.raw.pour || 0) - (p.raw.contre || 0)} : {}),
   };
+}
+function places(rows, seats) {
+  let cut = rows[Math.min(seats, rows.length) - 1].weight,
+    top = rows.filter((x) => x.weight > cut).map((x) => x.id),
+    tied = rows.filter((x) => x.weight === cut).map((x) => x.id);
+  if (top.length + tied.length === seats) {
+    top.push(...tied);
+    tied = [];
+  }
+  return {top, tied};
+}
+
+const stagedDuel = (p) => p.rulesVersion === 2 && p.kind === "plenary" && !p.round && !p.paper;
+function ordinaryResult(p) {
+  return {
+    rows: p.options.map((id) => ({id, raw: p.raw[id] || 0})),
+    voters: p.result.voters,
+    abstain: p.result.abstain,
+  };
+}
+function recordOpinion(s, p) {
+  const room = s.rooms[p.room];
+  (room.ranking ??= []).push({
+    id: p.base, score: p.result.score, for: p.raw.pour || 0,
+    against: p.raw.contre || 0, abstain: p.abstain,
+  });
+  room.ranking.sort((a, b) => b.score - a.score);
+  if (room.ranking.length !== s.pack.measures.filter((m) => m.room === p.room).length) return;
+  room.locked = true;
+  for (const offer of s.offers)
+    if (offer.status === "proposé" && s.members[offer.to].room === p.room) offer.status = "expiré";
+  const rows = room.ranking.map(({id,score}) => ({id, raw: score, weight: score, bonus: 0}));
+  const ranking = start(s, p.room, "ranking", rows.map((row) => row.id), 2);
+  // This is the published comparison of announced measures, not a ballot.
+  ranking.eligible = [];
+  ranking.result = {rows, ...places(rows, 2), denominator: 1, voters: 0, abstain: 0, absent: 0, expressed: 0};
+  ranking.status = ranking.result.tied.length ? "égalité" : "annoncé";
+  if (ranking.status === "annoncé") finish(s, ranking, ranking.result.top);
 }
 function finish(s, p, winners) {
   let r = s.rooms[p.room];
@@ -539,13 +575,15 @@ export function act(s, a, x) {
   if (type === "offer") {
     const to = s.members[x.to];
     check(a.role === "Lobby" && to?.role === "Citoyen");
-    check(m?.room === to.room, "Choisissez une mesure de la commission du citoyen.");
+    const interest = m?.id || null;
+    check((s.rulesVersion === 2 && !m) || m?.room === to.room,
+      "Choisissez une mesure de la commission du citoyen.");
     // The form keeps its request ID across a retry, even if the recipient already replied.
     if (x.requestId != null) {
       check(typeof x.requestId === "string" && /^[a-zA-Z0-9-]{1,64}$/.test(x.requestId));
       const earlier = s.offers.find((o) => o.by === a.id && o.requestId === x.requestId);
       if (earlier) {
-        check(earlier.to === to.id && earlier.measure === m.id);
+        check(earlier.to === to.id && earlier.measure === interest);
         return;
       }
     }
@@ -553,10 +591,10 @@ export function act(s, a, x) {
     check(to.present, "Ce citoyen est signalé absent.");
     // Two members of the same association can reach the same agreement at once.
     check(!s.offers.some((o) => o.group === a.group && o.to === to.id &&
-      o.measure === m.id && o.status !== "refusé"),
+      (s.rulesVersion === 2 || o.measure === interest) && ["proposé", "accepté"].includes(o.status)),
       "Votre association a déjà proposé ce point à ce citoyen.");
     check(
-      s.offers.filter((o) => o.group === a.group && o.status !== "refusé")
+      s.offers.filter((o) => o.group === a.group && ["proposé", "accepté"].includes(o.status))
         .length < s.capacity,
       "La réserve de votre association est épuisée.",
     );
@@ -564,7 +602,7 @@ export function act(s, a, x) {
       id: randomUUID(),
       group: a.group,
       to: to.id,
-      measure: m.id,
+      measure: interest,
       status: "proposé",
       ...(x.requestId ? { by: a.id, requestId: x.requestId } : {}),
     });
@@ -582,6 +620,8 @@ export function act(s, a, x) {
         !s.offers.some((v) => v.to === a.id && v.status === "accepté"),
         "Vous avez déjà accepté un point.",
       );
+    if (x.accept && s.rulesVersion === 2)
+      check(creditPoint(s, a.id), "Votre réserve est pleine. Vous pourrez accepter ce point après une dépense.");
     o.status = status;
     return;
   }
@@ -609,7 +649,15 @@ export function act(s, a, x) {
       start(s, x.room, x.kind, r.finalists, 1);
     } else {
       check(live && !r.finalists.length);
-      if (x.kind === "selection") {
+      if (s.rulesVersion === 2 && x.kind === "opinion") {
+        check(m?.room === x.room && !r.locked, "Mesure indisponible.");
+        check(!s.polls.some((v) => v.kind === "opinion" && v.base === m.id && v.status !== "invalidé"),
+          "Cette mesure a déjà été soumise au vote.");
+        check(!s.amends.some((a) => a.measure === m.id &&
+          ["admissible", "en examen", "à reformuler", "déposé"].includes(a.status)),
+          "Traitez les amendements de cette mesure avant son vote.");
+        start(s, x.room, "opinion", ["pour", "contre"], 1, { base: m.id });
+      } else if (x.kind === "selection" && s.rulesVersion !== 2) {
         check(
           !hasPendingAmendments(s, x.room),
           "Traitez les amendements en attente",
@@ -624,6 +672,8 @@ export function act(s, a, x) {
         );
       } else {
         check(x.kind === "amend" && !r.locked && m?.room === x.room);
+        check(!s.polls.some((v) => v.kind === "opinion" && v.base === m.id && v.status !== "invalidé"),
+          "Le vote sur cette mesure a déjà commencé.");
         let opts = s.amends
           .filter((v) => v.measure === m.id && v.status === "admissible")
           .map((v) => v.id);
@@ -672,7 +722,8 @@ export function act(s, a, x) {
       total >= expressed && total <= expressed * p.seats,
       "Nombre de choix incohérent",
     );
-    check(expressed || p.kind === "amend", "Aucun suffrage exprimé");
+    check(expressed || p.kind === "amend" || (p.kind === "opinion" && count), "Aucun bulletin exploitable");
+    cancelBallotPoints(s, p);
     p.status = "invalidé";
     let paper = start(s, p.room, p.kind, p.options, p.seats, {
       round: p.round || 0,
@@ -700,6 +751,7 @@ export function act(s, a, x) {
         x.choices.every((c) => p.options.includes(c)),
       "Bulletin invalide ou scrutin fermé",
     );
+    if (s.rulesVersion === 2) applyBallotPoints(s, p, a.id, x.choices, x.boost);
     p.receipts[a.id] = true;
     if (!x.choices.length) p.abstain++;
     for (let id of x.choices) p.raw[id] = (p.raw[id] || 0) + 1;
@@ -722,6 +774,7 @@ export function act(s, a, x) {
     [
       "close",
       "announce",
+      "revealOrdinary",
       "resume",
       "suspend",
       "restart",
@@ -743,6 +796,7 @@ export function act(s, a, x) {
     }
     if (type === "restart") {
       check(["incident", "suspendu"].includes(p.status));
+      cancelBallotPoints(s, p);
       p.status = "invalidé";
       start(s, p.room, p.kind, p.options, p.seats, {
         base: p.base || null,
@@ -759,13 +813,22 @@ export function act(s, a, x) {
         let raw = tally({ ...p, active: {} });
         p.result.withoutBonus = { top: raw.top, tied: raw.tied };
       }
-      p.status = p.result.expressed || p.kind === "amend" ? "clos" : "incident";
+      p.status = p.result.expressed || p.kind === "amend" || (p.kind === "opinion" && p.result.voters)
+        ? "clos" : "incident";
+      if (p.status === "clos") delete p.walletUndo;
+    }
+    if (type === "revealOrdinary") {
+      check(stagedDuel(p) && p.status === "clos", "Clôturez le duel avant de révéler les voix ordinaires.");
+      p.status = "ordinaire";
+      s.plenarySlide = "ordinary-" + p.id;
     }
     if (type === "announce") {
-      check(p.status === "clos");
+      check(p.status === (stagedDuel(p) ? "ordinaire" : "clos"),
+        "Vérifiez la clôture et les étapes de publication du scrutin.");
       let t = p.result;
       p.status = "annoncé";
-      if (p.kind === "amend") {
+      if (p.kind === "opinion") recordOpinion(s, p);
+      else if (p.kind === "amend") {
         finish(s, p, [
           t.rows.find((v) => v.raw * 2 > t.expressed)?.id || p.base,
         ]);
@@ -876,8 +939,27 @@ export function act(s, a, x) {
     note(s, a, "Dépêche " + d.id);
     return;
   }
+  if (type === "gameName") {
+    check(s.rulesVersion === 2 && a.role === "Citoyen" && s.phase !== "Débriefing");
+    check(typeof x.gameName === "string" && x.gameName.trim().length <= 40, "Choisissez un nom de jeu de 40 caractères maximum.");
+    a.gameName = x.gameName.trim().replace(/\s+/g, " ");
+    return;
+  }
+  if (type === "pressContact") {
+    check(s.rulesVersion === 2 && a.role === "Journaliste" && s.phase !== "Débriefing");
+    const card = readVisitCard(s, x.card);
+    s.pressContacts ??= {};
+    const contacts = s.pressContacts[a.id] ??= [];
+    if (!contacts.includes(card.id)) contacts.push(card.id);
+    return;
+  }
   if (type === "article") {
     check(active && a.role === "Journaliste");
+    if (x.requestId !== undefined) {
+      check(typeof x.requestId === "string" && /^[a-zA-Z0-9-]{1,64}$/.test(x.requestId), "Référence d’envoi invalide.");
+      if (s.articles.some((item) => item.group === a.group &&
+        (item.firstRequest === a.id + "/" + x.requestId || item.lastRequest === a.id + "/" + x.requestId))) return;
+    }
     let v = x.id
       ? s.articles.find((v) => v.id === x.id && v.group === a.group)
       : null;
@@ -889,27 +971,41 @@ export function act(s, a, x) {
       );
     const wire = x.wire ?? v?.draft?.wire ?? "";
     check(!wire || s.dispatches.includes(wire), "Cette dépêche n’a pas été diffusée.");
+    let press = {};
+    if (s.rulesVersion === 2) {
+      const cited = x.cited ?? v?.draft?.cited ?? [];
+      const awardTo = x.awardTo ?? v?.draft?.awardTo ?? [];
+      check(Array.isArray(cited) && cited.length <= s.n && cited.every((id) =>
+        typeof id === "string" && cardRoles.has(s.members[id]?.role)), "Une source ne figure pas dans cette séance.");
+      check(Array.isArray(awardTo) && awardTo.length <= 2 && awardTo.every((id) =>
+        cited.includes(id) && s.members[id]?.role === "Citoyen"), "Sélectionnez au maximum deux citoyens parmi les sources citées.");
+      press = { cited: [...new Set(cited)], awardTo: [...new Set(awardTo)] };
+    }
+    const draft = {
+      image: x.removeImage ? "" : (x.image ?? v?.draft?.image ?? ""),
+      title: str(x.title, 140),
+      text: str(x.text, 6000),
+      sources: String(x.sources || "").slice(0, 500),
+      wire,
+      ...press,
+    };
     if (!v) {
       v = {
         id: randomUUID(),
         group: a.group,
+        ...(x.requestId ? { firstRequest: a.id + "/" + x.requestId } : {}),
         opens: {},
         front: false,
         history: [],
       };
       s.articles.push(v);
     }
-    v.draft = {
-      image: x.removeImage ? "" : (x.image ?? v.draft?.image ?? ""),
-      title: str(x.title, 140),
-      text: str(x.text, 6000),
-      sources: String(x.sources || "").slice(0, 500),
-      wire,
-    };
+    v.draft = draft;
+    if (x.requestId) v.lastRequest = a.id + "/" + x.requestId;
     v.revision = (v.revision || 0) + 1;
     delete v.reason;
     v.status = x.publish ? (s.review ? "à relire" : "publié") : "brouillon";
-    if (v.status === "publié") publish(v);
+    if (v.status === "publié") publish(s, v);
     return;
   }
   if (type === "editorial") {
@@ -923,7 +1019,7 @@ export function act(s, a, x) {
       );
     if (x.accept) {
       check(v.status === "à relire");
-      publish(v);
+      publish(s, v);
     } else {
       v.status = "à corriger";
       v.reason = str(x.reason);
@@ -984,8 +1080,65 @@ export function act(s, a, x) {
   }
   throw new Error("Commande inconnue");
 }
-function publish(v) {
-  v.public = { ...v.draft, time: now(), corrected: !!v.history.length };
+const awardedBy = (article) => (article.pressAwards || []).filter((entry) => entry.status === "credited");
+function pressRemaining(s, group) {
+  return 2 - s.articles.filter((v) => v.group === group).reduce((n, v) => n + awardedBy(v).length, 0);
+}
+function pressAwardPlan(s, group, recipients) {
+  let remaining = pressRemaining(s, group);
+  const past = new Set(s.articles.flatMap((v) => awardedBy(v).map((entry) => entry.id)));
+  return recipients.map((id) => {
+    let status = "available";
+    if (s.phase !== "Commissions") status = "closed";
+    else if (past.has(id)) status = "already";
+    else if (!remaining) status = "empty";
+    else if (!s.members[id].present) status = "absent";
+    else if (walletPoints(s, id) >= walletCap) status = "full";
+    else remaining--;
+    return { id, status };
+  });
+}
+export function previewPressAwards(s, reporter, { article, recipients, requestId }) {
+  check(s.rulesVersion === 2 && reporter.role === "Journaliste" && reporter.present, "Accès réservé à la rédaction.");
+  check(Array.isArray(recipients) && recipients.length > 0 && recipients.length <= 2 &&
+    new Set(recipients).size === recipients.length && recipients.every((id) =>
+      typeof id === "string" && s.members[id]?.role === "Citoyen"), "Choisissez un ou deux citoyens cités.");
+  if (requestId) {
+    check(typeof requestId === "string" && /^[a-zA-Z0-9-]{1,64}$/.test(requestId));
+    const key = reporter.id + "/" + requestId;
+    if (s.articles.some((item) => item.group === reporter.group &&
+      (article ? item.id === article && item.lastRequest === key : item.firstRequest === key)))
+      return recipients.map((id) => ({ id, status: "submitted" }));
+  }
+  if (article) {
+    const item = s.articles.find((v) => v.id === article && v.group === reporter.group);
+    check(item, "Article indisponible pour votre rédaction.");
+    if (item.history.length || item.public || item.pressAwards)
+      return recipients.map((id) => ({id, status:"published"}));
+  }
+  return pressAwardPlan(s, reporter.group, recipients);
+}
+function awardAtPublication(s, article) {
+  return pressAwardPlan(s, article.group, article.draft.awardTo || []).map(({id, status}) => ({
+    id,
+    status: status === "available" ? (creditPoint(s, id) ? "credited" : "full") : status,
+  }));
+}
+function publicSource(s, member) {
+  return {
+    id: member.id, role: member.role, gameName: member.gameName || "",
+    groupName: memberGroup(s.pack, member)?.name || member.group,
+    roomName: s.pack.rooms[member.room] || "",
+  };
+}
+function publish(s, v) {
+  const { awardTo, cited, ...copy } = v.draft;
+  if (s.rulesVersion === 2 && !v.history.length && !v.public && !v.pressAwards) {
+    v.pressAwards = awardAtPublication(s, v);
+  }
+  v.public = { ...copy,
+    ...(cited?.length ? { cited: cited.map((id) => publicSource(s, s.members[id])) } : {}),
+    time: now(), corrected: !!v.history.length };
   v.history.push(v.public);
   v.status = "publié";
 }
@@ -1106,10 +1259,11 @@ export function view(s, a) {
       .map(
         ([
           id,
-          { focus, finalists, winner, official, locked, displaySlide, until },
+          { focus, finalists, winner, official, locked, displaySlide, until, ranking },
         ]) => [
           id,
-          { focus, finalists, winner, official, locked, displaySlide, until },
+          { focus, finalists, winner, official, locked, displaySlide, until,
+            ...(s.rulesVersion === 2 ? {ranking: ranking || []} : {}) },
         ],
       ),
   );
@@ -1149,13 +1303,15 @@ export function view(s, a) {
       ...(p.eligible.includes(a.id)
         ? { eligible: true, voted: !!p.receipts[a.id] }
         : {}),
-      ...(announced || (ctrl && p.result)
+      ...(stagedDuel(p) && (p.status === "ordinaire" || announced) ? {ordinary: ordinaryResult(p)} : {}),
+      ...(announced || (ctrl && p.result && !stagedDuel(p))
         ? { result: p.result, winners: p.winners }
         : {}),
     };
   });
   const result = {
     code: s.code,
+    rulesVersion: s.rulesVersion || 1,
     scenario: pack.title,
     version: pack.version,
     status: pack.status,
@@ -1305,6 +1461,8 @@ export function view(s, a) {
     }
   }
   if (cardRoles.has(a.role)) result.myCard = visitCard(s, a);
+  if (s.rulesVersion === 2 && a.role === "Citoyen")
+    result.wallet = {points: walletPoints(s, a.id), cap: walletCap};
   if (a.role === "Lobby" || a.role === "Citoyen") {
     result.offers = s.offers
       .filter((o) => a.role === "Lobby" ? o.group === a.group : o.to === a.id)
@@ -1322,6 +1480,17 @@ export function view(s, a) {
         id: v.id, room: v.room,
         territory: pack.territories[Number(v.group.slice(1))]?.name || v.group,
       }));
+  if (s.rulesVersion === 2 && a.role === "Citoyen") {
+    result.pressNews = s.articles.filter((v) => awardedBy(v).some((entry) => entry.id === a.id))
+      .map((v) => ({ id: v.id, title: v.public?.title || v.history[0].title,
+        media: mediaName(v.group), visible: !!v.public }));
+  }
+  if (s.rulesVersion === 2 && reporter) {
+    result.pressContacts = [...(s.pressContacts?.[a.id] || [])];
+    result.pressDirectory = Object.values(s.members).filter((person) => cardRoles.has(person.role))
+      .map((person) => publicSource(s, person));
+    result.pressRemaining = pressRemaining(s, a.group);
+  }
   const wires = [...(pack.dispatches || []), ...(s.liveWires || [])];
   if (reporter || desk) {
     result.reviewArticles = !!s.review;
@@ -1334,8 +1503,9 @@ export function view(s, a) {
     if (reporter) result.wires.sort((a, b) => sentOrder.get(a.id) - sentOrder.get(b.id));
     result.desk = s.articles
       .filter((v) => desk || v.group === a.group)
-      .map(({ opens, history, ...v }) => ({
+      .map(({ opens, history, firstRequest, lastRequest, ...v }) => ({
         ...v,
+        ...(s.rulesVersion === 2 ? { wasPublished: history.length > 0 || !!v.public } : {}),
         media: mediaName(v.group),
         audience: Object.keys(opens).length,
       }));
@@ -1448,7 +1618,7 @@ export function view(s, a) {
         }, 0),
       capacity: s.capacity,
       offered: s.offers.filter(
-        (o) => o.group === "L" + i && o.status !== "refusé",
+        (o) => o.group === "L" + i && ["proposé", "accepté"].includes(o.status),
       ).length,
       objectives: (l.objectives || []).map((ids) =>
         ids.some((id) => chosen.includes(id)),

@@ -42,13 +42,14 @@ export function reportRows(v, name) {
     add("Influence", l.name, "Réserve", l.capacity);
   }
   for (const p of v.polls.filter((p) => p.result)) {
+    if (p.kind === "ranking" && !p.round) continue;
     let t = p.result,
       total = t.absent + t.voters,
-      label = v.roomNames[p.room] + " · " + p.kind + " · " + p.id.slice(0, 8);
+      label = v.roomNames[p.room] + " · " + (p.kind === "opinion" ? name(p.base) : p.kind) + " · " + p.id.slice(0, 8);
     if (
       t.voters < min ||
       small(t.abstain, total) ||
-      t.rows.some((z) => small(z.raw, total))
+      t.rows.some((z) => small(z.raw, total) || (v.rulesVersion === 2 && z.bonus > 0 && small(z.bonus,total)))
     ) {
       add("Scrutins", label, "Détail", "Regroupé pour confidentialité");
       continue;
@@ -57,6 +58,12 @@ export function reportRows(v, name) {
     add("Scrutins", label, "Votants", t.voters);
     add("Scrutins", label, "Sans bulletin", t.absent);
     add("Scrutins", label, "Abstentions", t.abstain);
+    if (p.kind === "opinion") {
+      add("Scrutins",label,"Pour",t.rows.find(r => r.id === "pour")?.raw || 0);
+      add("Scrutins",label,"Contre",t.rows.find(r => r.id === "contre")?.raw || 0);
+      add("Scrutins",label,"Score",t.score);
+      continue;
+    }
     for (const z of t.rows) {
       add("Scrutins", label, name(z.id) + " · soutiens", z.raw);
       add("Scrutins", label, name(z.id) + " · bonus", z.bonus);

@@ -5,7 +5,7 @@ import { demo } from "../functions/scenario.mjs";
 import { influenceMeasures } from "../public/influence.js";
 
 test("Le formulaire d’influence fait correspondre le citoyen, son territoire et les mesures de sa commission", () => {
-  const s = create(structuredClone(demo), 100);
+  const s = create(structuredClone(demo), 100, false, {rulesVersion:1});
   const inspect = (id) => view(s, s.members[id]);
   const issue = (id, type, params) => act(s, s.members[id], { type, ...params });
   assert.deepEqual(inspect("L1").targets, []);
@@ -26,7 +26,7 @@ test("Le formulaire d’influence fait correspondre le citoyen, son territoire e
 });
 
 test("Une proposition rejouée et des réponses répétées ne changent ni la réserve ni le consentement", () => {
-  const s = create(structuredClone(demo), 100);
+  const s = create(structuredClone(demo), 100, false, {rulesVersion:1});
   const inspect = (id) => view(s, s.members[id]);
   const issue = (id, type, params) => act(s, s.members[id], { type, ...params });
   issue("REG", "phase");

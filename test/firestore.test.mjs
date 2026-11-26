@@ -21,7 +21,7 @@ test(
         admin = s.members.REG;
       act(s, admin, { type: "phase" });
       for (const room of Object.keys(s.rooms))
-        act(s, admin, { type: "open", kind: "selection", room });
+        act(s, admin, { type: "open", kind: "opinion", measure:room + "1", room });
       await store.create(s);
       const change = (id, x) =>
         store.change(s.code, (state) => {
@@ -35,7 +35,7 @@ test(
             return change(m.id, {
               type: "vote",
               poll: s.polls.find((p) => p.room === m.room).id,
-              choices: [m.room + "1", m.room + "2"],
+              choices: ["pour"],
             });
           if (m.id === "J1")
             return change(m.id, {
@@ -52,7 +52,7 @@ test(
         change("C1", {
           type: "vote",
           poll: s.polls[0].id,
-          choices: ["P1", "P2"],
+          choices: ["pour"],
         }),
       ]);
       let restored = await store.get(s.code);
@@ -60,6 +60,7 @@ test(
         restored.polls.reduce((n, p) => n + Object.keys(p.receipts).length, 0),
         105,
       );
+      assert.equal(view(restored, restored.members.C1).wallet.points, 1);
       assert.equal(restored.articles.length, 1);
       assert.equal(restored.dispatches.length, 1);
       let article = restored.articles[0].id;

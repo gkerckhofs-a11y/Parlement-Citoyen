@@ -59,6 +59,15 @@ const ballotTypes = {
     label: "Sélection en commission",
     question: "Quelles propositions envoyer en plénière ?",
   },
+  opinion: {
+    label: "Vote de commission",
+    question: "Pour ou contre cette proposition ?",
+    open: "Sur votre appareil, votez pour, contre ou abstenez-vous.",
+  },
+  ranking: {
+    label: "Classement de commission",
+    question: "Quelles propositions départager ?",
+  },
   plenary: {
     label: "Vote en plénière",
     question: "Quelle mesure le Parlement adopte-t-il ?",
@@ -70,7 +79,7 @@ function countLabel(value, singular, plural = singular + "s") {
   return number(value) + " " + (Number(value) > 1 ? plural : singular);
 }
 
-function describeBallot(slide, poll) {
+function describeBallot(slide, poll, measure, rulesVersion) {
   if (
     !slide.ballot &&
     !slide.ballotKind &&
@@ -95,7 +104,8 @@ function describeBallot(slide, poll) {
     slide.kind === "Résultat du vote" &&
     isAnnounced(slide) &&
     (!poll?.status || isAnnounced(poll));
-  const data = announced ? poll?.result : null;
+  const ordinary = slide.kind === "Voix ordinaires" && status === "ordinaire";
+  const data = announced ? poll?.result : ordinary ? poll?.ordinary : null;
   const rows = slide.rows || [];
   const selected = announced ? rows.filter((row) => row.selected) : [];
   const winners = announced ? poll?.winners || [] : [];
@@ -115,13 +125,15 @@ function describeBallot(slide, poll) {
       (!winners.length &&
         !selected.length &&
         data?.tied?.length > 0 &&
-        kind !== "amend"));
+        kind !== "amend" && kind !== "opinion"));
   const weighted =
     kind === "selection" &&
     !(slide.round || poll?.round) &&
     !poll?.paper &&
     (data?.rows || []).some((row) => row.bonus > 0);
-  const unit =
+  const unit = ordinary ? "Voix ordinaires" :
+    kind === "ranking" && !slide.round ? "Scores nets" :
+    kind === "plenary" && rulesVersion === 2 && !slide.round && !poll?.paper ? "Total des voix" :
     kind === "selection"
       ? weighted
         ? "Soutiens pondérés"
@@ -133,7 +145,7 @@ function describeBallot(slide, poll) {
     slide.seats ??
     poll?.seats ??
     (kind === "selection" || kind === "prelim" ? 2 : 1);
-  let title = type?.question || slide.title,
+  let title = kind === "opinion" && measure ? measure.title : type?.question || slide.title,
     instruction = "";
   let state =
     {
@@ -144,7 +156,11 @@ function describeBallot(slide, poll) {
       suspendu: "Vote suspendu",
       "à ouvrir": "Avant le vote",
     }[status] || "Vote";
-  if (announced) {
+  if (ordinary) {
+    state = "Première annonce";
+    title = "Les voix ordinaires";
+    instruction = "Les renforts et le résultat définitif seront annoncés ensuite.";
+  } else if (announced) {
     state = "Résultat";
     if (tied) {
       title = "Égalité à départager";
@@ -152,6 +168,10 @@ function describeBallot(slide, poll) {
         slide.round || poll?.round
           ? "La présidence de séance doit départager les options à égalité."
           : "Un nouveau scrutin départage les options à égalité.";
+    } else if (kind === "opinion") {
+      const net = slide.net ?? data?.score;
+      title = measure?.title || slide.title;
+      instruction = "Score net de la proposition : " + signed(net) + " (voix pour moins voix contre).";
     } else if (kind === "amend") {
       title = keptOriginal ? "Texte initial maintenu" : "Amendement adopté";
       if (keptOriginal)
@@ -162,7 +182,7 @@ function describeBallot(slide, poll) {
       else
         instruction =
           "La version amendée sera défendue lors de la sélection en commission.";
-    } else if (kind === "selection") {
+    } else if (kind === "selection" || kind === "ranking") {
       title = "Les finalistes de la commission";
       instruction = winners.length
         ? winners.join(" et ") +
@@ -179,7 +199,9 @@ function describeBallot(slide, poll) {
       title = winningCode
         ? "La mesure " + winningCode + " est adoptée"
         : "Mesure adoptée";
-      instruction = "Elle entre dans le plan voté par le Parlement.";
+      instruction = rulesVersion === 2 && !slide.round && !poll?.paper
+        ? "Les voix ordinaires et les renforts sont additionnés pour chaque finaliste."
+        : "Elle entre dans le plan voté par le Parlement.";
     } else title = "Résultat du scrutin";
     if (
       !tied &&
@@ -208,7 +230,7 @@ function describeBallot(slide, poll) {
     instruction = "Attendez l’ouverture du scrutin pour voter.";
   }
   const participation = [];
-  if (announced && slide.turnout != null) {
+  if ((announced || ordinary) && slide.turnout != null) {
     participation.push(countLabel(slide.turnout, "votant"));
     const expressed =
       data?.expressed ??
@@ -223,6 +245,7 @@ function describeBallot(slide, poll) {
   return {
     kind,
     announced,
+    ordinary,
     state,
     tied,
     weighted,
@@ -256,7 +279,7 @@ function outcomeFor(row, ballot, poll) {
   }
   if (ballot.kind === "prelim")
     return row.selected ? "Soumis au vote" : "Écarté";
-  if (ballot.kind === "selection") return row.selected ? "Finaliste" : "";
+  if (["selection", "ranking"].includes(ballot.kind)) return row.selected ? "Finaliste" : "";
   return row.selected ? (ballot.kind === "plenary" ? "Adoptée" : "Retenu") : "";
 }
 
@@ -321,7 +344,7 @@ export function parliamentScreen(
   const compare = slide.id?.startsWith("compare-");
   const trends = slide.kind === "Effets envisagés";
   const poll = view.polls?.find((p) => p.id === slide.poll);
-  const ballot = describeBallot(slide, poll);
+  const ballot = describeBallot(slide, poll, measure, view.rulesVersion);
   const announced = ballot?.announced;
   const code = slide.version || slide.measure || slide.image;
   const identity = [
@@ -358,7 +381,7 @@ export function parliamentScreen(
         ? "Dans les commissions"
         : summary
           ? "Mesures adoptées"
-          : announced
+          : announced || ballot?.ordinary
             ? ballot.unit
             : compare
               ? "Propositions finalistes"
@@ -393,7 +416,10 @@ export function parliamentScreen(
               ? row.status
               : ""
             : row.status;
-      const rowCode = [row.version || row.measure, choiceStatus]
+      const breakdown = announced && row.ordinaryVotes != null && row.boosts != null
+        ? [countLabel(row.ordinaryVotes, "voix ordinaire", "voix ordinaires"),
+          countLabel(row.boosts, "renfort")].join(" + ") : "";
+      const rowCode = [row.version || row.measure, choiceStatus, breakdown]
         .filter(Boolean)
         .join(" · ");
       const rowLabel = general
@@ -405,7 +431,7 @@ export function parliamentScreen(
         ? effect(String(row.score ?? ""))
         : national && Number.isFinite(row.score)
           ? signed(row.score)
-          : announced && row.score != null
+          : (announced || ballot?.ordinary) && row.score != null
             ? approx + h(plainScore)
             : "";
       const mark =

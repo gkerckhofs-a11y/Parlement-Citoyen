@@ -4,7 +4,7 @@ import { act, view } from "../functions/engine.mjs";
 import { demo } from "../functions/scenario.mjs";
 import { create } from "../functions/engine.mjs";
 test("Chaque salle avance indépendamment et seuls ses pilotes peuvent la commander", () => {
-  const s = create(demo, 50),
+  const s = create(demo, 50, false, { rulesVersion: 1 }),
     show = (member, scope, slide) =>
       act(s, s.members[member], { type: "presentSlide", room: scope, slide });
   const slide = (screen, scope) =>
@@ -24,7 +24,7 @@ test("Chaque salle avance indépendamment et seuls ses pilotes peuvent la comman
   assert.equal(view(s, s.members["ECR-P"]).presentations.P.menu, undefined);
 });
 test("Le projecteur passe du scrutin au dépouillement puis au résultat annoncé", () => {
-  const s = create(demo, 50),
+  const s = create(demo, 50, false, { rulesVersion: 1 }),
     reg = (type, x = {}) => act(s, s.members.REG, { type, ...x });
   reg("phase");
   for (const [id, r] of Object.entries(s.rooms))

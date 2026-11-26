@@ -24,7 +24,7 @@ function primary(state, role, scope) {
 }
 
 test("Le bouton de conduite ouvre réellement l’urne et ramène au texte suivant après l’annonce", () => {
-  const state = create(structuredClone(demo), 50);
+  const state = create(structuredClone(demo), 50, false, { rulesVersion: 1 });
   const run = (id, command) => act(state, state.members[id], command);
   run("REG", { type: "phase" });
   run("C1", {
@@ -67,7 +67,7 @@ test("Le bouton de conduite ouvre réellement l’urne et ramène au texte suiva
 });
 
 test("La plénière passe de la comparaison au vote, puis à la commission suivante", () => {
-  const state = create(structuredClone(demo), 50);
+  const state = create(structuredClone(demo), 50, false, { rulesVersion: 1 });
   const run = (id, command) => act(state, state.members[id], command);
   run("PRE", { type: "phase" });
   for (const [code, room] of Object.entries(state.rooms))

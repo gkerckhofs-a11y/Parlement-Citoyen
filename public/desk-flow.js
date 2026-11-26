@@ -14,7 +14,8 @@ function stepLabel(item, roomNames) {
     item.status === "annoncé" ||
     item.status === "égalité"
   )
-    return "Afficher le résultat · " + item.title;
+    return item.ballotKind === "ranking" && !item.round
+      ? "Projeter le classement de la commission" : "Afficher le résultat · " + item.title;
   if (item.id.startsWith("journal-"))
     return (
       "Projeter la séquence " + (Number(item.journalIndex) + 1) + " du journal"
@@ -35,6 +36,9 @@ function openVote(step, view, btn) {
       amendments.length > 2
         ? "Ouvrir la présélection des amendements"
         : "Ouvrir le vote sur les amendements";
+  } else if (kind === "opinion") {
+    args.measure = step.measure;
+    label = "Ouvrir le vote pour ou contre " + step.measure;
   } else if (kind === "selection")
     label = "Ouvrir le vote sur les deux finalistes";
   else if (kind === "plenary")
@@ -84,13 +88,21 @@ export function deskFlow(view, deck, active, go, { btn, para }) {
       const first =
         route.find((item) => item.poll === active.id) ||
         menu.find((item) => item.poll === active.id);
-      if (first) primary = go("Revenir au vote en cours", first.id, false);
+      if (first) {
+        const label = active.kind === "ranking" && !active.round
+          ? "Afficher le classement et les places à départager" : "Revenir au vote en cours";
+        primary = go(label, first.id, false);
+      }
     } else {
-      const cmd =
-        active.status === "égalité"
+      const staged = view.rulesVersion === 2 && active.kind === "plenary" && !active.round && !active.paper;
+      const cmd = staged && active.status === "clos"
+        ? ["revealOrdinary", "Révéler les voix ordinaires"]
+        : staged && active.status === "ordinaire"
+          ? ["announce", "Révéler les renforts et le résultat final"]
+          : active.status === "égalité"
           ? active.round
             ? ["draw", "Départager par tirage au sort"]
-            : ["tie", "Ouvrir le vote de départage"]
+            : ["tie", view.rulesVersion === 2 ? "Ouvrir le départage à voix égales" : "Ouvrir le vote de départage"]
           : commands[active.status];
       if (cmd)
         primary = btn(cmd[1], {
@@ -111,6 +123,10 @@ export function deskFlow(view, deck, active, go, { btn, para }) {
       if (active.status === "clos")
         note =
           "La salle voit que le vote est clos. Les chiffres apparaîtront à l’annonce.";
+      if (staged && active.status === "clos")
+        note = "Le vote est clos. Affichez les voix ordinaires, puis les renforts et le total définitif.";
+      if (staged && active.status === "ordinaire")
+        note = "Seules les voix ordinaires sont projetées. Le prochain geste révèle les renforts pour les deux finalistes.";
       if (active.status === "égalité")
         note = "La salle voit l’égalité annoncée.";
       if (next?.poll === active.id)
@@ -119,6 +135,8 @@ export function deskFlow(view, deck, active, go, { btn, para }) {
   } else if (current.openKind || next?.openKind) {
     const step = current.openKind ? current : next;
     primary = openVote(step, view, btn);
+    if (step.openKind === "opinion")
+      note = "La commission se prononce sur " + step.measure + ". Son score sera le nombre de voix pour moins le nombre de voix contre.";
     if (step.openKind === "selection")
       note =
         "La commission va choisir les deux textes qui iront en plénière. L’ouverture fige les textes et les attributions d’influence.";
@@ -151,8 +169,9 @@ export function deskFlow(view, deck, active, go, { btn, para }) {
     current.room &&
     !view.rooms[current.room]?.finalists.length
   ) {
-    note =
-      "Traitez les amendements en attente pour ouvrir le vote sur les deux finalistes.";
+    note = view.rulesVersion === 2
+      ? "Le classement des finalistes sera établi après le vote sur chaque proposition."
+      : "Traitez les amendements en attente pour ouvrir le vote sur les deux finalistes.";
   } else if (!isPlenary && view.rooms[current.room]?.finalists.length) {
     note = "Les finalistes de cette commission sont annoncés.";
   }
@@ -174,19 +193,24 @@ export function deskFlow(view, deck, active, go, { btn, para }) {
     const here = pending.some((a) => a.measure === current.measure);
     const review =
       '<a href="#desk-amendments" data-examine-amendments>Examiner les amendements en attente</a>';
-    if (here && primary) {
+    if (here && view.rulesVersion === 2 && current.measure && !current.amendment) {
+      primary = review;
+      note = "Traitez les amendements de " + current.measure + " avant d’ouvrir son vote pour ou contre.";
+    } else if (here && primary) {
       note =
         "Un amendement à cette proposition attend encore son admission au vote.";
       secondary = review + secondary;
     } else if (!primary && pending.length) {
       primary = review;
     } else if (!primary) {
-      const missed = route.find((item) => item.openKind === "amend");
+      const missed = route.find((item) => item.openKind === "amend" || item.openKind === "opinion");
       if (missed) {
         const clause = route.find(
           (item) => item.measure === missed.measure && item.amendment,
         );
-        primary = clause
+        primary = missed.openKind === "opinion"
+          ? go("Revenir à la proposition " + missed.measure, "measure-" + missed.measure, false)
+          : clause
           ? go("Revenir à l’amendement de " + missed.measure, clause.id, false)
           : openVote(missed, view, btn);
       }

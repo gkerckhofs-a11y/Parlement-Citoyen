@@ -10,7 +10,7 @@ import {
 } from "../functions/engine.mjs";
 import { demo } from "../functions/scenario.mjs";
 const setup = (n = 100, review = false) => {
-  const s = create(structuredClone(demo), n, review);
+  const s = create(structuredClone(demo), n, review, {rulesVersion:1});
   const doAs = (id, type, x = {}) => act(s, s.members[id], { type, ...x });
   const reg = (type, x) => doAs("REG", type, x);
   const get = (id) => view(s, s.members[id]);

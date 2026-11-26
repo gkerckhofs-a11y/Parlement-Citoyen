@@ -21,7 +21,7 @@ async function load() {
   section.className = "personal-card";
   section.append(
     element("h1", "Carte de visite"),
-    element("h2", info.id + " · " + info.role),
+    element("h2", [info.gameName, info.id, info.role].filter(Boolean).join(" · ")),
     element(
       "p",
       [info.groupName, info.roomName && "Commission " + info.roomName]
@@ -38,6 +38,11 @@ async function load() {
     info.role === "Citoyen"
   ) {
     const link = element("a", "Préparer une offre pour " + info.id);
+    link.className = "desk-link";
+    link.href = "/#carte=" + card;
+    section.append(element("p", ""), link);
+  } else if (stored?.code === code && /^J[0-9]+$/.test(stored.id) && sessionStorage.getItem("pc.press." + code + "." + stored.id) === "2") {
+    const link = element("a", "Enregistrer cette source dans mes contacts");
     link.className = "desk-link";
     link.href = "/#carte=" + card;
     section.append(element("p", ""), link);

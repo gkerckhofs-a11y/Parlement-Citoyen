@@ -1,5 +1,5 @@
-import { deskFlow, slidePicker } from "./desk-flow.js?v=vote3";
-import { deskPreview } from "./commission-desk.js?v=cartes1";
+import { deskFlow, slidePicker } from "./desk-flow.js?v=reserve1";
+import { deskPreview } from "./commission-desk.js?v=reserve1";
 
 export function plenaryDesk(v, preparedRoom, ui) {
   const { h, btn, para, details, deskLink, name, icon } = ui;
@@ -125,6 +125,10 @@ export function plenaryDesk(v, preparedRoom, ui) {
     deskPreview(deck, "Plénière", v.measures, ui) +
     "</div><div>" +
     deskFlow(v, deck, active, go, ui) +
+    (v.rulesVersion === 2 && phaseIsLive && !active
+      ? para("Après chaque duel, révélez d’abord les voix ordinaires puis les renforts et le total définitif.") : "") +
+    (v.rulesVersion === 2 && active && ["suspendu", "incident"].includes(active.status) && ui.polls
+      ? details("Dépouiller sur papier à voix égales", ui.polls(active.room, false, [active])) : "") +
     details("Choisir un duel", finalistPanel()) +
     details("Accès à toutes les pages", slidePicker(deck, "", ui)) +
     closing +

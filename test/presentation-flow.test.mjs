@@ -4,7 +4,7 @@ import { create, act, view } from "../functions/engine.mjs";
 import { demo } from "../functions/scenario.mjs";
 
 function setup() {
-  const s = create(structuredClone(demo), 50);
+  const s = create(structuredClone(demo), 50, false, { rulesVersion: 1 });
   const run = (id, type, args = {}) => act(s, s.members[id], { type, ...args });
   const deck = (id, scope = "P") => view(s, s.members[id]).presentations[scope];
   const control = () => deck("MOD-P");

@@ -1,4 +1,4 @@
-import { deskFlow, slidePicker } from "./desk-flow.js?v=vote3";
+import { deskFlow, slidePicker } from "./desk-flow.js?v=reserve1";
 
 export function deskPreview(deck, roomName, measures, { h, para, banner }) {
   const { current } = deck;
@@ -83,6 +83,7 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
     v.roster?.find((m) => m.id === "ECR-" + scope);
   const isChair = v.me.role !== "Modérateur";
   const live = v.phase === "Commissions";
+  const byMeasure = v.rulesVersion === 2;
   const slideAction = (slide) => ({ type: "presentSlide", room: scope, slide });
   function go(label, id, secondary = true) {
     return id && menu.some((s) => s.id === id)
@@ -179,18 +180,29 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
   }
   function votePanel() {
     const wrap = (content) => '<section class="desk-ballot" aria-labelledby="desk-votes-title"><h2 id="desk-votes-title" tabindex="-1">Votes de la commission</h2>' + content + "</section>";
+    const ranking = room.ranking || [];
+    const progress = byMeasure ? para(ranking.length + " sur " + measures.length +
+      " propositions avec un résultat annoncé.") : "";
+    const standings = byMeasure && ranking.length
+      ? '<h3>Classement des votes annoncés</h3><ol>' + ranking.map((item) =>
+        "<li>" + h(item.id + " · " + name(item.id)) + " · " +
+        h([item.for + " pour", item.against + " contre", item.abstain + " abst.", "score " +
+          (item.score > 0 ? "+" : "") + item.score].join(" · ")) + "</li>").join("") + "</ol>"
+      : "";
     if (room.finalists.length) {
       const list = room.finalists.map((id) => "<li><strong>" + h(id) + "</strong> · " +
         h(name(id)) + (room.winner === id ? " · Adoptée en plénière" : "") + "</li>").join("");
-      return wrap("<h3>Finalistes de la commission</h3><ul>" + list + "</ul>");
+      return wrap("<h3>Finalistes de la commission</h3><ul>" + list + "</ul>" + standings);
     }
     if (!live) return wrap(para(v.phase === "Préparation"
-      ? "Les scrutins de commission seront disponibles quand la régie ouvrira le Parlement."
+      ? byMeasure
+        ? "Préparez les propositions à projeter. Une fois le Parlement ouvert, examinez les amendements de chaque texte puis ouvrez son vote pour ou contre. Les deux meilleurs scores passent en plénière."
+        : "Les scrutins de commission seront disponibles quand la régie ouvrira le Parlement."
       : "La période de vote des commissions est terminée."));
     if (v.me.present === false) return wrap(para("Votre présence est marquée « absente ». Les commandes de vote sont indisponibles."));
     if (active) {
       const subject = { amend:"Vote sur les amendements", prelim:"Présélection des amendements",
-        selection:"Sélection des finalistes" }[active.kind] || "Scrutin";
+        selection:"Sélection des finalistes", opinion:"Vote pour ou contre", ranking:"Classement des finalistes" }[active.kind] || "Scrutin";
       const status = { ouvert:"Vote ouvert", clos:"Vote clos, résultat à annoncer", suspendu:"Scrutin suspendu",
         incident:"Scrutin interrompu", égalité:"Égalité annoncée" }[active.status] || active.status;
       const action = active.status === "ouvert" ? ["Clore le vote", "close"] :
@@ -200,19 +212,24 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
       if (active.status === "ouvert" && current.poll !== active.id && active.expected !== undefined)
         content += para(active.received + " / " + active.expected + " bulletins reçus.");
       if (action) content += voteCommand(action[0], { type:action[1], poll:active.id });
-      return wrap(content);
+      return wrap(content + progress + standings);
     }
     // The server publishes the available actions. A paginated ballot contributes only one opener.
     const openers = new Map();
     for (const step of menu) {
-      if (step.room === scope && ["amend", "selection"].includes(step.openKind)) {
+      if (step.room === scope && ["amend", "selection", "opinion"].includes(step.openKind)) {
         const key = step.openKind + "/" + (step.measure || "");
         if (!openers.has(key)) openers.set(key, step);
       }
     }
-    let content = para("Aucun scrutin ouvert.");
+    let content = para("Aucun scrutin ouvert.") + progress;
     for (const step of openers.values()) {
-      if (step.openKind === "selection") {
+      if (step.openKind === "opinion") {
+        if (step.measure !== measure?.id) continue;
+        content += para("Proposition préparée · " + step.measure + " · " + name(step.measure)) +
+          voteCommand("Ouvrir le vote pour ou contre " + step.measure,
+            { type:"open", room:scope, kind:"opinion", measure:step.measure });
+      } else if (step.openKind === "selection") {
         content += para("L’ouverture de la sélection fige les textes et les points d’influence de cette commission.") +
           voteCommand("Ouvrir la sélection des finalistes", {type:"open",room:scope,kind:"selection"});
       } else {
@@ -226,15 +243,16 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
       ["déposé","en examen","à reformuler"].includes(item.status));
     if (pending.length) {
       const affected = [...new Set(pending.map((item)=>item.measure))];
-      content += para("La sélection des finalistes attend le traitement des amendements sur " +
-        affected.join(", ") + ".") +
+      content += para((byMeasure ? "Le vote pour ou contre attend le traitement des amendements sur " :
+        "La sélection des finalistes attend le traitement des amendements sur ") + affected.join(", ") + ".") +
         '<a href="#desk-amendments" data-examine-amendments>Examiner les amendements en attente</a>';
     } else if ([...openers.values()].some((step)=>step.openKind==="amend")) {
-      content += para("La sélection des finalistes suivra le vote sur les amendements admissibles.");
+      content += para(byMeasure ? "Après les amendements, ouvrez le vote pour ou contre la proposition."
+        : "La sélection des finalistes suivra le vote sur les amendements admissibles.");
     } else if (!openers.size) {
       content += para("La sélection des finalistes est en attente.");
     }
-    return wrap(content);
+    return wrap(content + standings);
   }
   return (
     '<div class="commission-desk"><div class="desk-topline">' +
@@ -259,7 +277,7 @@ export function commissionDesk(v, scope, selectedMeasure, ui) {
     "</div><div>" +
     (flowHasVoteCommand ? '<div id="desk-vote-command" tabindex="-1">' + flow + "</div>" : flow) +
     votePanel() +
-    details("Choisir un texte à projeter", measureControls()) +
+    details(byMeasure ? "Choisir la proposition à préparer ou à projeter" : "Choisir un texte à projeter", measureControls()) +
     details("Accès à toutes les pages", slidePicker(deck, scope, ui)) +
     "</div></div>" +
     (amendments.length

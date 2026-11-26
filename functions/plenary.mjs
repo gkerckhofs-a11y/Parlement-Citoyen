@@ -83,18 +83,24 @@ export function plenarySlides(s, scope = "", journal = []) {
       ...(groups.length > 1 ? { part: (i + 1) + " / " + groups.length } : {}),
     }));
   }
-  function ballot(room, p, id, { announced = false, openKind } = {}) {
-    const kind = announced ? "Résultat du vote" : "Vote";
+  function ballot(room, p, id, { announced = false, ordinary = false, openKind } = {}) {
+    const modern = s.rulesVersion === 2;
+    const ordinaryStage = ordinary && p.kind === "plenary";
+    const kind = ordinaryStage ? "Voix ordinaires" : announced ? "Résultat du vote" : "Vote";
     const title = {
       plenary: "Choix de la plénière",
       amend: "Vote sur l’amendement",
       prelim: "Sélection des amendements",
       selection: "Choix des finalistes",
+      opinion: "Vote sur " + (p.base || "la proposition"),
+      ranking: p.round ? "Départage des finalistes" : "Classement des propositions",
     }[p.kind];
-    const archivedVote = !announced && p.id && announcedPoll(p);
-    const status = archivedVote ? "clos" : (p.status || "à ouvrir");
-    const lines = p.options;
+    const archivedVote = !announced && !ordinaryStage && p.id && (announcedPoll(p) || p.status === "ordinaire");
+    const status = ordinaryStage ? "ordinaire" : archivedVote ? "clos" : (p.status || "à ouvrir");
+    const ranking = p.kind === "ranking" && !p.round;
+    const lines = ranking && announced ? p.result.rows.map((row) => row.id) : p.options;
     const caption = archivedVote ? "Ce scrutin est terminé." : {
+      ordinaire: "Les renforts seront révélés par la présidence.",
       ouvert: "Le scrutin est ouvert. Votez sur votre appareil.",
       clos: "Le vote est clos. Le résultat sera annoncé en séance.",
       suspendu: "Le vote est suspendu.",
@@ -112,18 +118,22 @@ export function plenarySlides(s, scope = "", journal = []) {
           ? s.amends.find((a) => a.id === s.rooms[room].official[measure.id])
           : null;
       const row = announced && p.result?.rows.find((r) => r.id === option);
-      const score = row
+      const raw = ordinaryStage ? p.result?.rows.find((r) => r.id === option)?.raw : undefined;
+      const score = ordinaryStage ? String(raw ?? 0) : row
         ? (row.weight / p.result.denominator).toLocaleString("fr-BE", {
             maximumFractionDigits: 3,
           })
         : "";
-      return passages(measure?.title || amendment?.text || option, 200).map(
+      const optionTitle = p.kind === "opinion" ? { pour: "Pour", contre: "Contre" }[option] : null;
+      return passages(optionTitle || measure?.title || amendment?.text || option, 200).map(
         (title) => ({
           option,
           measure: measure?.id || amendment?.measure,
           version: amendment?.profile || official?.profile || measure?.id,
           title,
           score,
+          ...(row && modern && p.kind === "plenary" && !p.round && !p.paper
+            ? { ordinaryVotes: row.raw, boosts: row.bonus } : {}),
           selected: announced && !!p.winners?.includes(option),
         }),
       );
@@ -140,16 +150,20 @@ export function plenarySlides(s, scope = "", journal = []) {
         rows,
         ...(p?.base ? { measure: p.base } : {}),
         ...(openKind ? { openKind } : {}),
-        ...(announced
+        ...((announced || ordinaryStage) && !ranking
           ? { turnout: p.result.voters, abstain: p.result.abstain }
           : {}),
+        ...(announced && p.kind === "opinion" ? { net: p.result.score } : {}),
         ...(groups.length > 1 ? { part: i + 1 + " / " + groups.length } : {}),
       };
       add(id + (i ? "-" + i : ""), kind, room, title, caption, extra);
     });
   }
   function recordPoll(p, voteId) {
-    ballot(p.room, p, voteId);
+    if (p.kind !== "ranking" || p.round) ballot(p.room, p, voteId);
+    if (s.rulesVersion === 2 && p.kind === "plenary" && !p.round && !p.paper &&
+        (p.status === "ordinaire" || announcedPoll(p)))
+      ballot(p.room, p, "ordinary-" + p.id, { ordinary: true });
     if (announcedPoll(p)) ballot(p.room, p, "result-" + p.id, { announced: true });
   }
   if (!scope)
@@ -213,7 +227,9 @@ export function plenarySlides(s, scope = "", journal = []) {
           version: profile.id,
           ...timer,
         });
-      if (scope && s.phase === "Commissions" && !r.locked && !roomBusy) {
+      const opinionStarted = s.rulesVersion === 2 && s.polls.some((p) =>
+        p.kind === "opinion" && p.base === m.id && p.status !== "invalidé");
+      if (scope && s.phase === "Commissions" && !r.locked && !roomBusy && !opinionStarted) {
         const options = s.amends.filter((a) => a.measure === m.id && a.status === "admissible")
           .map((a) => a.id);
         if (options.length) {
@@ -222,10 +238,15 @@ export function plenarySlides(s, scope = "", journal = []) {
             kind: preliminary ? "prelim" : "amend", base: m.id,
             options: preliminary ? options : [m.id, ...options], seats: preliminary ? 2 : 1,
           }, "call-" + m.id, { openKind: "amend" });
+        } else if (s.rulesVersion === 2 && !r.finalists.length &&
+            !s.amends.some((a) => a.measure === m.id &&
+              ["en examen", "à reformuler", "déposé"].includes(a.status))) {
+          ballot(room, { kind: "opinion", base: m.id, options: ["pour", "contre"], seats: 1 },
+            "opinion-" + m.id, { openKind: "opinion" });
         }
       }
     }
-    if (scope && s.phase === "Commissions" && !r.finalists.length &&
+    if (s.rulesVersion !== 2 && scope && s.phase === "Commissions" && !r.finalists.length &&
         !roomBusy && !hasPendingAmendments(s, room))
       ballot(room, { kind: "selection", options: measures.map((m) => m.id), seats: 2 },
         "select-" + room, { openKind: "selection" });
@@ -304,9 +325,11 @@ export function presentationRoute(s, slides, scope = "") {
     let key = slide.id.split("~")[0];
     if (slide.ballot) {
       if (slide.poll)
-        key = (slide.kind === "Résultat du vote" ? "result-" : "poll-") + slide.poll;
+        key = (slide.kind === "Résultat du vote" ? "result-" :
+          slide.kind === "Voix ordinaires" ? "ordinary-" : "poll-") + slide.poll;
       else if (slide.ballotKind === "plenary") key = "duel-" + slide.room;
       else if (slide.ballotKind === "selection") key = "select-" + slide.room;
+      else if (slide.ballotKind === "opinion") key = "opinion-" + slide.measure;
       else key = "call-" + slide.measure;
     }
     if (!pages.has(key)) pages.set(key, []);
@@ -314,7 +337,8 @@ export function presentationRoute(s, slides, scope = "") {
   }
   const route = [];
   const append = (key) => route.push(...(pages.get(key) || []));
-  const appendPoll = (p) => append((announcedPoll(p) ? "result-" : "poll-") + p.id);
+  const appendPoll = (p) => append((announcedPoll(p) ? "result-" :
+    p.status === "ordinaire" ? "ordinary-" : "poll-") + p.id);
   if (!scope && s.phase === "Débriefing") {
     append("balance");
     for (const room of Object.keys(s.rooms)) {
@@ -342,10 +366,11 @@ export function presentationRoute(s, slides, scope = "") {
       if (scope) {
         polls.filter((p) => p.base === id).forEach(appendPoll);
         append("call-" + id);
+        if (s.rulesVersion === 2) append("opinion-" + id);
       }
     }
     if (scope) {
-      polls.filter((p) => p.kind === "selection").forEach(appendPoll);
+      polls.filter((p) => p.kind === "selection" || p.kind === "ranking").forEach(appendPoll);
       append("select-" + room);
     } else {
       append("compare-" + room);

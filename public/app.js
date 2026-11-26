@@ -1,18 +1,20 @@
-import { citizenInfluencePanel, influencePanel, influenceMeasures } from "./influence.js?v=cartes1";
-import { showPersonalCard, showPublicCard, scanCard, printParticipantCards } from "./participant-cards.js?v=cartes1";
-import { plenaryDesk } from "./plenary-desk.js?v=vote3";
+import { currentResult, duelBallot, measureBallot, walletLabel } from "./citizen-ballot.js?v=reserve1";
+import { citizenInfluencePanel, influencePanel, influenceMeasures } from "./influence.js?v=reserve1";
+import { awardPreview, awardReport, changeSources, citedByline, pressAwardNotice, pressSearchResults, pressSelections, pressSourcePanel } from "./press-influence.js?v=reserve1";
+import { showPersonalCard, showPublicCard, scanCard, printParticipantCards } from "./participant-cards.js?v=reserve1";
+import { plenaryDesk } from "./plenary-desk.js?v=reserve1";
 import {
   projectionLink,
   projectionRoute,
   screenScope,
 } from "./projection-access.js";
-import { commissionDesk } from "./commission-desk.js?v=cartes1";
-import { reportRows } from "./report.js";
+import { commissionDesk } from "./commission-desk.js?v=reserve1";
+import { reportRows } from "./report.js?v=reserve1";
 import { editor } from "./editor.js";
 import {
   parliamentScreen,
   projectionScope,
-} from "./commission-screen.js?v=vote3";
+} from "./commission-screen.js?v=reserve1";
 const main = document.querySelector("#main"),
   feedback = document.querySelector("#feedback"),
   sessionLabel = document.querySelector("#session");
@@ -115,7 +117,7 @@ if (projectorPage) {
     if (location.hash) history.replaceState(null, "", location.pathname);
   }
 } else if (hash.has("key")) {
-  tab = new Map([["vote","Vote"],["influence","Influence"],["carte","Ma carte"],["groupe","Mon équipe"]]).get(hash.get("rubrique")) || null;
+  tab = new Map([["vote","Vote"],["influence","Influence"],["carte","Ma carte"],["groupe","Mon équipe"],["redaction","Rédaction"]]).get(hash.get("rubrique")) || null;
   auth = { code: hash.get("code"), id: hash.get("id"), key: hash.get("key") };
   if (auth.id !== "ECR" && !auth.id?.startsWith("ECR-"))
     sessionStorage.setItem("pc.auth", JSON.stringify(auth));
@@ -201,13 +203,15 @@ const labels = {
   amend: "Vote du texte",
   prelim: "Choix des amendements",
   selection: "Sélection des finalistes",
+  opinion: "Vote sur la mesure",
+  ranking: "Classement de la commission",
   plenary: "Duel de plénière",
 };
 const role = () => v.me.role,
   chair = () => ["Régie", "Présidence"].includes(role()),
   control = (r) => chair() || (role() === "Modérateur" && v.me.room === r);
 const name = (id) =>
-  v.measures.find((m) => m.id === id)?.title ||
+  ({pour:"Pour",contre:"Contre"})[id] || v.measures.find((m) => m.id === id)?.title ||
   v.amends.find((a) => a.id === id)?.text ||
   id;
 const aff = (id) => "<strong>" + h(name(id)) + "</strong>";
@@ -316,6 +320,7 @@ const pollLabel = (p) =>
     ouvert: "Vote ouvert",
     clos: "Vote clos · Résultat à venir",
     dépouillement: "Vote clos · Résultat à venir",
+    ordinaire: "Voix ordinaires annoncées",
     annoncé: "Résultat annoncé",
     égalité: "Égalité · Départage requis",
     suspendu: "Scrutin suspendu",
@@ -337,7 +342,10 @@ function polls(r, commissionOnly = false, source = v.polls) {
       let body =
         tag(pollLabel(p)) +
         (p.round ? " " + tag("Départage") : "") +
-        para(p.options.map(name).join(" • "));
+        (p.kind === "opinion" ? (() => {
+          const measure = v.measures.find(m => m.id === p.base);
+          return "<h3>" + h(measure?.title || p.base) + "</h3>" + para(measure?.official?.text || measure?.text || "");
+        })() : p.kind === "ranking" && !p.round ? "" : para(p.options.map(name).join(" • ")));
       if (p.paper) body += tag("Scrutin papier · double comptage");
       if (p.result?.withoutBonus) {
         let cf = p.result.withoutBonus;
@@ -353,8 +361,11 @@ function polls(r, commissionOnly = false, source = v.polls) {
       if (p.expected !== undefined)
         body += para(p.received + " / " + p.expected + " bulletins reçus");
       if (p.voted) body += para("Vote enregistré");
-      else if (p.eligible && v.me.present !== false && p.status === "ouvert")
-        body += form(
+      else if (p.eligible && v.me.present !== false && p.status === "ouvert") {
+        if (p.kind === "opinion") body += measureBallot(v, p, {h,form});
+        else if (v.rulesVersion === 2 && p.kind === "plenary" && !p.round)
+          body += duelBallot(v, p, {h,form,name});
+        else body += form(
           { type: "vote", poll: p.id },
           '<fieldset class="ballot-options"><legend>' +
             h(
@@ -376,10 +387,14 @@ function polls(r, commissionOnly = false, source = v.polls) {
             "</fieldset>",
           "Enregistrer mon bulletin",
         );
-      if (p.result) {
+      }
+      if (p.status === "ordinaire" && p.ordinary) body +=
+        table(["Texte","Voix ordinaires"],p.ordinary.rows.map(row => [name(row.id), row.raw])) +
+        para("Les renforts et le résultat final seront annoncés par la présidence.");
+      if (p.result && p.status !== "ordinaire") {
         let t = p.result;
         body +=
-          table(
+          (v.rulesVersion === 2 ? currentResult(v,p,{table,name}) : table(
             ["Option", "Soutiens", "Bonus", "Total"],
             t.rows.map((z) => [
               name(z.id),
@@ -389,26 +404,29 @@ function polls(r, commissionOnly = false, source = v.polls) {
                 maximumFractionDigits: 3,
               }),
             ]),
-          ) +
-          para(
+          )) +
+          (p.kind === "ranking" && !p.round ? "" : para(
             t.voters +
               " votants · " +
               t.abstain +
               " abstentions · " +
               t.absent +
               " sans bulletin",
-          );
+          ));
         if (p.winners)
           body += para("Retenu · " + p.winners.map(name).join(" • "));
       }
       if (control(r) && (p.kind !== "plenary" || chair())) {
+        const revealInTwoSteps = v.rulesVersion === 2 && p.kind === "plenary" && !p.round && !p.paper;
         let commands =
           {
             ouvert: [
               ["close", "Clore le vote"],
               ["suspend", "Suspendre"],
             ],
-            clos: [["announce", "Annoncer le résultat"]],
+            clos: revealInTwoSteps ? [["revealOrdinary", "Révéler les voix ordinaires"]]
+              : [["announce", "Annoncer le résultat"]],
+            ordinaire: [["announce", "Révéler les renforts et le résultat final"]],
             suspendu: [
               ["resume", "Reprendre"],
               ["restart", "Invalider et revoter"],
@@ -438,7 +456,7 @@ function polls(r, commissionOnly = false, source = v.polls) {
             .join("") +
           "</div>";
       }
-      if (control(r) && ["suspendu", "incident"].includes(p.status))
+      if (control(r) && (p.kind !== "plenary" || chair()) && ["suspendu", "incident"].includes(p.status))
         body += details(
           "Secours papier",
           form(
@@ -446,17 +464,20 @@ function polls(r, commissionOnly = false, source = v.polls) {
             para(
               "Invalidez cette urne pour tout l’électorat. Annoncez le nouveau vote à voix égales avant de distribuer les bulletins. Deux adultes vérifient le comptage.",
             ) +
+              (v.rulesVersion === 2 && p.kind === "opinion"
+                ? para("Chaque bulletin compte pour, contre ou abstention. Le dépouillement papier conserve les soldes individuels.")
+                : v.rulesVersion === 2 && p.kind === "plenary" ? para("Comptez une voix par bulletin exprimé. Aucun renfort individuel n’est saisi sur papier.") : "") +
               field("Bulletins papier", "count", 0, "number") +
               field("Abstentions", "abstain", 0, "number") +
               p.options
-                .map((id) => field(name(id), "raw-" + id, 0, "number"))
+                .map((id) => field(({ pour: "Pour", contre: "Contre" })[id] || name(id), "raw-" + id, 0, "number"))
                 .join("") +
               field("Motif et provenance", "reason") +
               '<label><input type="checkbox" required name="checked">Double comptage effectué</label>',
             "Enregistrer le scrutin papier",
           ),
         );
-      return section(labels[p.kind], body);
+      return section(p.round ? "Vote de départage" : labels[p.kind], body);
     })
     .join("");
 }
@@ -474,6 +495,20 @@ function citizenBallotPanel() {
     body = polls(ballot.room, false, [ballot]);
     if (ballot.status === "ouvert" && (!ballot.eligible || v.me.present === false))
       body = para("Vous ne figurez pas parmi les votants de ce scrutin. L’animateur peut vérifier votre présence.") + body;
+  }
+  if (v.wallet && (!ballot || ballot.voted || ballot.status !== "ouvert" || !["opinion","plenary"].includes(ballot.kind) || ballot.round))
+    body += '<p class="vote-wallet">' + h(walletLabel(v.wallet)) + '</p>';
+  if (v.rulesVersion === 2 && v.phase === "Commissions") {
+    const measures = v.measures.filter(m => m.room === v.me.room);
+    const scores = v.rooms[v.me.room]?.ranking || [];
+    body += details("Les mesures de ma commission", "<ol>" + measures.map(m => {
+      const record = scores.find(r => r.id === m.id);
+      return "<li>" + h(m.title) + (record ? " · score " + h(record.score) : "") + "</li>";
+    }).join("") + "</ol>");
+  } else if (v.rulesVersion === 2 && v.phase === "Plénière") {
+    body += details("Les duels de la plénière", "<ol>" + Object.entries(v.rooms).map(([id,r]) =>
+      "<li><strong>" + h(v.roomNames[id]) + "</strong> · " +
+      h(r.finalists.map(name).join(" ou ")) + (r.winner ? " · Vote terminé" : "") + "</li>").join("") + "</ol>");
   }
   return '<section class="current-ballot" aria-label="Mon vote"><h2>' + h(heading) + '</h2>' +
     (place ? '<p class="vote-place">' + h(place) + '</p>' : '') + body + '</section>';
@@ -821,8 +856,10 @@ function assembly() {
       });
   }
   let actions = "";
+  const availableMeasures = v.rulesVersion === 2 ? ms.filter(m => !v.polls.some(
+    p => p.kind === "opinion" && p.base === m.id)) : ms;
   if (
-    !display &&
+    availableMeasures.length && !display &&
     role() === "Citoyen" &&
     room === v.me.room &&
     phase === "Commissions" &&
@@ -835,7 +872,7 @@ function assembly() {
         opts(
           "Mesure",
           "measure",
-          ms.map((m) => [m.id, m.title]),
+          availableMeasures.map((m) => [m.id, m.title]),
         ) +
           field("Modification précise", "text", "", "area") +
           field("Justification", "why") +
@@ -852,6 +889,8 @@ function assembly() {
     "</h2>" +
     cmd +
     focus +
+    (v.rulesVersion === 2 && r.ranking?.length ? details("Classement des mesures de la commission",
+      table(["Mesure","Pour","Contre","Abst.","Score"],r.ranking.map(row => [name(row.id),row.for,row.against,row.abstain,row.score]))) : "") +
     (r.finalists.length
       ? section(
           "Finalistes",
@@ -1006,8 +1045,7 @@ function journal() {
     (!articles.length ? para("Aucun article publié pour le moment.") : "") +
     articles
       .map((n) =>
-        section(
-          n.title,
+        '<article id="news-' + h(n.id) + '" tabindex="-1"><h3>' + h(n.title) + '</h3>' +
           tag(n.media) +
             (n.front ? " " + tag("À la Une") : "") +
             para(
@@ -1015,13 +1053,19 @@ function journal() {
                 (n.corrected ? " · corrigé" : ""),
             ) +
             (reading === n.id
-              ? picture(n) + para(n.text) + para(n.sources)
-              : btn("Lire l’article", { ui: "read", id: n.id })),
-        ),
+              ? picture(n) + para(n.text) + (n.sources ? para(n.sources) : "") + citedByline(n,{h})
+              : btn("Lire l’article", { ui: "read", id: n.id })) + "</article>",
       )
       .join("")
   );
 }
+async function openPressLink() {
+  const id = new URLSearchParams(location.hash.slice(1)).get("article");
+  if (!id || !auth || !v?.news.some((n) => n.id === id)) return;
+  await run({ui:"read",id,fromNotice:true});
+  document.getElementById("news-" + id)?.focus();
+}
+window.addEventListener("hashchange", openPressLink);
 function draftKey() {
   return "pc.draft." + auth.code + "." + auth.id + "." + editing;
 }
@@ -1030,6 +1074,7 @@ function rememberDraft(f) {
   const preview = f.querySelector("[data-preview]");
   const content = {
     title: title.value, text: text.value, sources: sources.value, wire: wire.value,
+    ...pressSelections(f), requestId: f.dataset.requestId, sendingPublish: f.dataset.sendingPublish,
     removeImage: !!removeImage?.checked, revision: JSON.parse(f.dataset.action).revision,
   };
   if (!preview.hidden && !content.removeImage) content.photo = preview.src;
@@ -1068,10 +1113,15 @@ function newsroom() {
   const d = saved || item?.draft || {};
   const revision = saved?.revision ?? item?.revision ?? 0;
   const formAction = { type: "article", id: editing, revision };
-  return '<h2>Bureau de rédaction · ' + h(v.team.name) + '</h2><div class="news-desk"><aside data-wire-inbox>' +
-    wireInbox(v, open) + "</aside><div>" +
+  const contacts = (v.pressDirectory || []).filter((p) => v.pressContacts.includes(p.id));
+  const notebook = v.pressDirectory ? section("Mes contacts",
+    (contacts.length ? para(contacts.map((p) => [p.gameName,p.id,p.groupName].filter(Boolean).join(" · ")).join(" / ")) :
+      para("Scannez une carte de visite pour retrouver cette source au moment de rédiger.")) +
+    (v.phase !== "Débriefing" ? btn("Scanner une carte de visite",{ui:"scanPress"},true) : "")) : "";
+  return '<h2>Bureau de rédaction · ' + h(v.team.name) + '</h2><div class="news-desk"><aside><div data-wire-inbox>' +
+    wireInbox(v, open) + "</div>" + notebook + "</aside><div>" +
     (open ? section(editing ? "Modifier l’article" : "Nouvel article",
-      '<form data-news-article data-action="' + data(formAction) + '">' +
+      '<form data-news-article data-request-id="' + h(saved?.requestId) + '" data-sending-publish="' + h(saved?.sendingPublish) + '" data-action="' + data(formAction) + '">' +
         field("Titre", "title", d.title || "") + field("Article", "text", d.text || "", "area") +
         picture(item?.draft) +
         '<label>Photo ou illustration<input type="file" name="attachment" accept="image/*"></label>' +
@@ -1080,7 +1130,8 @@ function newsroom() {
         ' alt="Aperçu de l’image choisie">' +
         (item?.draft?.image ? '<label><input type="checkbox" name="removeImage"' +
           (d.removeImage ? " checked" : "") + '>Retirer l’image actuelle</label>' : "") +
-        '<label>Sources et interviews<input name="sources" maxlength="500" value="' + h(d.sources) + '"></label>' +
+        pressSourcePanel(v,d,item,{h,btn}) +
+        '<label>Autres sources et références<input name="sources" maxlength="500" value="' + h(d.sources) + '"></label>' +
         '<label>Dépêche traitée<select name="wire">' + wireOptions(v.wires, d.wire) + '</select></label>' +
         '<div data-draft-conflict>' + conflictControls(item, revision) + '</div>' +
         '<div class="actions"><button class="secondary" type="submit">Enregistrer le brouillon</button>' +
@@ -1090,7 +1141,7 @@ function newsroom() {
       : para(v.phase === "Préparation" ? "La rédaction ouvrira au début des commissions." : "La rédaction est clôturée.")) +
     "</div></div><h3>Articles de la rédaction</h3>" +
     (v.desk.length ? v.desk.map((n) => section(n.draft.title,
-      tag(n.status) + (n.reason ? para(n.reason) : "") +
+      tag(n.status) + (n.reason ? para(n.reason) : "") + awardReport(n.pressAwards,{h}) +
       (open ? btn("Ouvrir l’article", { ui: "edit", id: n.id }) :
         details("Relire le texte", para(n.draft.text) + picture(n.draft))) +
       (open && n.public ? btn(n.front ? "Retirer la Une" : "Mettre à la Une",
@@ -1108,6 +1159,19 @@ function updateWritingDesk(next, f) {
     say("Le fil de votre rédaction a été mis à jour.");
   }
   const item = next.desk.find((n) => n.id === editing);
+  const sourcePanel = f.querySelector("[data-press-sources]");
+  if (sourcePanel && (next.phase !== v.phase || next.pressRemaining !== v.pressRemaining ||
+      item?.wasPublished !== v.desk.find((n) => n.id === editing)?.wasPublished ||
+      JSON.stringify(next.pressDirectory) !== JSON.stringify(v.pressDirectory))) {
+    const query = sourcePanel.querySelector("[data-press-search]").value;
+    const focusSearch = document.activeElement === sourcePanel.querySelector("[data-press-search]");
+    const selected = pressSelections(f);
+    sourcePanel.outerHTML = pressSourcePanel(next,selected,item,{h,btn});
+    const search = f.querySelector("[data-press-search]");
+    search.value = query;
+    f.querySelector("[data-press-results]").innerHTML = pressSearchResults(next,query,selected.cited,{h});
+    if (focusSearch) search.focus();
+  }
   if (item && item.revision !== v.desk.find((n) => n.id === editing)?.revision) {
     f.querySelector("[data-draft-conflict]").innerHTML = conflictControls(item, JSON.parse(f.dataset.action).revision);
     loadPhotos();
@@ -1144,11 +1208,11 @@ function projectionPanel() {
 function accessPanels() {
   if (!v.roster) return "";
   let html = "";
-  if (["AC20360001", "AC20360002", "AC20360003"].includes(v.code)) {
-    if (v.code === "AC20360001") html += '<section class="access-panel"><h3>Essayer un citoyen en commission</h3><div>' +
-      '<a class="desk-link" target="_blank" rel="noopener" href="/admin?session=AC20360001&amp;essai=vote">Vote de Soins · C2</a>' +
-      '<a class="desk-link" target="_blank" rel="noopener" href="/admin?session=AC20360001&amp;essai=influence">Influence en Prévention · C1</a>' +
-      '<a class="desk-link" target="_blank" rel="noopener" href="/admin?session=AC20360001&amp;essai=lobby">Proposer un point · L1</a></div></section>';
+  if (/^AC2036000[1-6]$/.test(v.code)) {
+    if (["AC20360001","AC20360004"].includes(v.code)) html += '<section class="access-panel"><h3>Essayer un citoyen en commission</h3><div>' +
+      '<a class="desk-link" target="_blank" rel="noopener" href="/admin?session=' + v.code + '&amp;essai=vote">Vote de Soins · C2</a>' +
+      '<a class="desk-link" target="_blank" rel="noopener" href="/admin?session=' + v.code + '&amp;essai=influence">Influence en Prévention · C1</a>' +
+      '<a class="desk-link" target="_blank" rel="noopener" href="/admin?session=' + v.code + '&amp;essai=lobby">Proposer un point · L1</a></div></section>';
     const roles = {
       Citoyen: "Citoyen",
       Lobby: "Groupe d’influence",
@@ -1404,6 +1468,14 @@ function admin() {
             tag(n.status) +
               picture(n.draft) +
               para(n.draft.text) +
+              (n.draft.sources ? para(n.draft.sources) : "") +
+              (n.draft.cited?.length ? para("Personnes citées · " + n.draft.cited.map((id) => {
+                const person = v.roster.find((p) => p.id === id);
+                return [person?.gameName,id].filter(Boolean).join(" · ");
+              }).join(", ")) : "") +
+              (!n.wasPublished && n.draft.awardTo?.length ?
+                para("Points demandés par la rédaction à la publication · " + n.draft.awardTo.join(", ")) : "") +
+              awardReport(n.pressAwards,{h}) +
               (n.status === "à relire"
                 ? btn("Autoriser la publication", {
                     type: "editorial",
@@ -1552,9 +1624,7 @@ function bilan() {
           "Attribués",
           "Restants",
           "Acceptés",
-          "Activés",
-          "Acceptés inutilisés",
-          "Bonus retenu",
+          ...(v.rulesVersion === 2 ? [] : ["Activés", "Acceptés inutilisés", "Bonus retenu"]),
         ],
         v.lobby.map((l) => [
           l.name,
@@ -1562,9 +1632,7 @@ function bilan() {
           l.offered,
           l.capacity - l.offered,
           l.accepted,
-          l.activated,
-          l.accepted - l.activated,
-          l.bonus.toLocaleString("fr-BE"),
+          ...(v.rulesVersion === 2 ? [] : [l.activated, l.accepted - l.activated, l.bonus.toLocaleString("fr-BE")]),
         ]),
       ),
     ) +
@@ -1662,7 +1730,7 @@ function bilan() {
       .map((p) =>
         section(
           v.roomNames[p.room] + " · " + labels[p.kind],
-          table(
+          v.rulesVersion === 2 ? currentResult(v,p,{table,name}) : table(
             ["Texte", "Soutiens", "Bonus"],
             p.result.rows.map((z) => [name(z.id), z.raw, z.bonus]),
           ) +
@@ -1742,6 +1810,7 @@ function render() {
   if (plenaryRequested() && v.presentations?.plenary?.menu) {
     sessionLabel.textContent = "Présidence · Régie";
     main.innerHTML = plenaryDesk(v, preparedDuel, {
+      polls,
       h,
       btn,
       form,
@@ -1789,6 +1858,8 @@ function render() {
   if (v.me.group) tabs.push("Mon équipe");
   if (role() === "Journaliste") tabs.push("Rédaction");
   if (v.myCard) tabs.push("Ma carte");
+  if (role() === "Journaliste" && v.pressDirectory)
+    sessionStorage.setItem("pc.press." + v.code + "." + v.me.id, "2");
   if (chair()) tabs.push("Régie");
   if (v.balance) tabs.push("Débriefing");
   if (!tabs.includes(tab)) {
@@ -1858,14 +1929,21 @@ function render() {
       .join("") +
     btn("Quitter", { ui: "exit" }, true) +
     "</nav>" +
-    (citizen && tab === "Assemblée" ? citizenBallotPanel() + citizenInfluencePanel(v,{h,btn},{compact:true}) : "") +
+    (citizen && tab === "Assemblée" ? citizenBallotPanel() + pressAwardNotice(v,{h,btn}) + citizenInfluencePanel(v,{h,btn},{compact:true}) : "") +
     {
       Assemblée: assembly,
       Vote: citizenBallotPanel,
-      Influence: () => citizenInfluencePanel(v,{h,btn}),
+      Influence: () => pressAwardNotice(v,{h,btn}) + citizenInfluencePanel(v,{h,btn}),
       "Ma carte": () => scannedCard
-        ? showPublicCard(scannedCard,role() === "Lobby" ? v : null,{h,btn}) + btn("Revenir à ma carte", {ui:"ownCard"}, true)
-        : showPersonalCard(v.myCard,link({...v.me,key:auth.key}),showPrivateCard,{h,btn}),
+        ? showPublicCard(scannedCard,role() === "Lobby" ? v : null,{h,btn}) +
+          (v.pressDirectory && v.phase !== "Débriefing" ? btn("Enregistrer cette source dans mes contacts",{ui:"savePressCard",card:scannedCard.card},true) : "") +
+          btn("Revenir à ma carte", {ui:"ownCard"}, true)
+        : showPersonalCard(v.myCard,link({...v.me,key:auth.key}),showPrivateCard,{h,btn}) +
+          (v.rulesVersion === 2 && citizen && !showPrivateCard && v.phase !== "Débriefing"
+            ? section("Mon nom de jeu",form({type:"gameName"},
+              '<label>Nom de jeu facultatif<input name="gameName" maxlength="40" value="' + h(v.myCard.gameName) +
+                '" autocomplete="off"></label><p>Un surnom suffit. Il apparaît sur votre carte publique et permet aux journalistes de vous retrouver. Vous pouvez aussi garder uniquement votre identifiant.</p>',
+              "Enregistrer mon nom de jeu")) : ""),
       Journal: journal,
       "Mon équipe": team,
       Rédaction: newsroom,
@@ -1890,13 +1968,13 @@ function editingCurrentForm(next) {
         return ["Commissions", "Plénière"].includes(next.phase);
       if (action?.type === "message") return next.team?.canMessage && next.me.group === v.me.group;
       if (action?.type === "offer") {
-        const hasReserve = next.offers.filter((o) => o.status !== "refusé").length < next.capacity;
+        const hasReserve = next.offers.filter((o) => ["proposé","accepté"].includes(o.status)).length < next.capacity;
         return next.me.present !== false && hasReserve &&
           next.targets.some((t) => t.id === f.elements.to.value);
       }
       return (
         action?.type !== "vote" ||
-        next.polls.some(
+        next.wallet?.points === v.wallet?.points && next.polls.some(
           (p) => p.id === action.poll && p.status === "ouvert" && !p.voted,
         )
       );
@@ -1998,6 +2076,18 @@ async function run(x) {
   if (pending) return;
   pending = true;
   try {
+    if (x.ui === "scanPress" && v.pressDirectory) {
+      const f = main.querySelector("[data-news-article]");
+      if (f) rememberDraft(f);
+      scanCard({session:v.code, lookup:target=>call("card",target), onCard:person=>run({ui:"savePressCard",card:person.card})});
+      return;
+    }
+    if (x.ui === "savePressCard" && v.pressDirectory) {
+      await call("action",{...auth,action:{type:"pressContact",card:x.card}});
+      scannedCard=null; tab="Rédaction";
+      await refresh(true); say("Source enregistrée dans vos contacts.");
+      return;
+    }
     if (x.ui === "scanCard" && v.myCard) {
       scanCard({session:v.code,lookup:target=>call("card",target),onCard:person=>{
         scannedCard = person; showPrivateCard = false; tab = "Ma carte"; render(); window.scrollTo(0,0);
@@ -2062,6 +2152,7 @@ async function run(x) {
     } else if (x.ui === "read") {
       await call("action", { ...auth, action: { type: "read", id: x.id } });
       reading = x.id;
+      if (x.fromNotice) tab = "Journal";
     } else if (x.ui === "useWire") {
       const f = main.querySelector("[data-news-article]");
       if (!f) return;
@@ -2174,6 +2265,8 @@ async function run(x) {
   }
 }
 main.addEventListener("click", (e) => {
+  const pressLink = e.target.closest('a[href^="#article="]');
+  if (pressLink && pressLink.hash === location.hash) { e.preventDefault(); openPressLink(); return; }
   if (e.target.closest("[data-examine-amendments]")) {
     e.preventDefault();
     const list = main.querySelector("#desk-amendments details");
@@ -2186,6 +2279,13 @@ main.addEventListener("click", (e) => {
   }
   let b = e.target.closest("button");
   if (!b) return;
+  if (b.hasAttribute("data-press-add") || b.hasAttribute("data-press-remove")) {
+    const f = b.form;
+    changeSources(f,v,v.desk.find((n) => n.id === editing),{h},{add:b.dataset.pressAdd,remove:b.dataset.pressRemove});
+    f.dataset.dirty = "1"; delete f.dataset.requestId; rememberDraft(f);
+    if (b.hasAttribute("data-press-remove")) void checkPressRecipients(f);
+    return;
+  }
   if (b.hasAttribute("data-desk-plenary")) {
     changeDesk("", true);
     return;
@@ -2228,6 +2328,13 @@ main.addEventListener("click", (e) => {
 });
 main.addEventListener("change", async (e) => {
   const input = e.target;
+  if (input.name === "awardTo" && input.form?.hasAttribute("data-news-article")) {
+    const f = input.form;
+    changeSources(f,v,v.desk.find((n) => n.id === editing),{h});
+    f.dataset.dirty = "1"; delete f.dataset.requestId; rememberDraft(f);
+    await checkPressRecipients(f);
+    return;
+  }
   if (input.name === "to" && input.form?.elements.measure && v?.targets) {
     selectedCitizenId = input.value;
     const choices = influenceMeasures(v, input.value);
@@ -2264,15 +2371,75 @@ main.addEventListener("change", async (e) => {
       for (const b of submit) b.disabled = false;
   }
 });
+main.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.matches("[data-press-search]")) e.preventDefault();
+});
 main.addEventListener("input", (e) => {
+  if (e.target.matches("[data-press-search]")) {
+    const form = e.target.form;
+    form.querySelector("[data-press-results]").innerHTML =
+      pressSearchResults(v,e.target.value,pressSelections(form).cited,{h});
+    return;
+  }
   if (e.target.form?.dataset.action) {
     let f = e.target.form;
     f.dataset.dirty = "1";
-    if (f.hasAttribute("data-news-article")) rememberDraft(f);
+    if (e.target.name === "choices" && f.elements.boost) {
+      const boost = f.elements.boost;
+      boost.disabled = !e.target.value || !v.wallet?.points;
+      if (boost.disabled) boost.checked = false;
+    }
+    if (f.hasAttribute("data-news-article")) { delete f.dataset.requestId; rememberDraft(f); }
   }
 });
+const previewRequests = new WeakMap();
+async function checkPressRecipients(form) {
+  const status = form.querySelector("[data-press-preview]");
+  if (!status) return true;
+  const { awardTo } = pressSelections(form);
+  const request = Symbol();
+  previewRequests.set(form, request);
+  if (!awardTo.length) {
+    status.replaceChildren();
+    return true;
+  }
+  const current = () => form.isConnected && previewRequests.get(form) === request &&
+    JSON.stringify(pressSelections(form).awardTo) === JSON.stringify(awardTo);
+  status.textContent = "Vérification des points demandés…";
+  try {
+    const entries = await call("press-preview",{...auth, article:editing, recipients:awardTo,
+      requestId: form.dataset.sendingPublish === "true" ? form.dataset.requestId : undefined});
+    if (!current()) return false;
+    if (entries.every((entry) => entry.status === "submitted")) {
+      form.querySelector("[data-press-preview]").textContent = "Votre envoi a déjà été enregistré.";
+      return true;
+    }
+    const unavailable = new Set(entries.filter((e) => e.status !== "available").map((e) => e.id));
+    if (unavailable.size) {
+      for (const option of form.querySelectorAll('input[name="awardTo"]:checked')) {
+        if (unavailable.has(option.value)) option.checked = false;
+      }
+      changeSources(form,v,v.desk.find((n) => n.id === editing),{h});
+      delete form.dataset.requestId;
+      rememberDraft(form);
+    }
+    form.querySelector("[data-press-preview]").innerHTML = awardPreview(entries,{h});
+    return unavailable.size === 0;
+  } catch {
+    if (current()) form.querySelector("[data-press-preview]").textContent =
+      "Vérification indisponible. Réessayez ou décochez les points pour publier les citations seules.";
+    return false;
+  }
+}
 function articleAction(f, publish) {
-  const x = { ...JSON.parse(f.dataset.action), ...Object.fromEntries(new FormData(f)), publish };
+  if (!f.dataset.requestId || f.dataset.sendingPublish !== String(publish)) {
+    f.dataset.requestId = [...crypto.getRandomValues(new Uint8Array(16))]
+      .map((byte) => byte.toString(16).padStart(2,"0")).join("");
+    f.dataset.sendingPublish = String(publish);
+    rememberDraft(f);
+  }
+  const x = { ...JSON.parse(f.dataset.action), ...Object.fromEntries(new FormData(f)),
+    ...pressSelections(f), publish, requestId:f.dataset.requestId };
   delete x.attachment;
   delete x.camera;
   const preview = f.querySelector("[data-preview]");
@@ -2285,7 +2452,11 @@ main.addEventListener("submit", async (e) => {
     d = new FormData(f),
     x = { ...JSON.parse(f.dataset.action), ...Object.fromEntries(d) };
   try {
-    if (x.type === "article") x = articleAction(f, e.submitter?.name === "publish");
+    if (x.type === "article") {
+      const publish = e.submitter?.name === "publish";
+      if (publish && pressSelections(f).awardTo?.length && !await checkPressRecipients(f)) return;
+      x = articleAction(f, publish);
+    }
     if (x.type === "offer" && globalThis.crypto?.randomUUID) {
       const choice = JSON.stringify([x.to, x.measure]);
       if (f.dataset.offerChoice !== choice) {
@@ -2305,7 +2476,10 @@ main.addEventListener("submit", async (e) => {
           .map(([k, n]) => [k.slice(4), Number(n)]),
       );
     }
-    if (x.type === "vote") x.choices = d.getAll("choices").filter(Boolean);
+    if (x.type === "vote") {
+      x.choices = d.getAll("choices").filter(Boolean);
+      if (f.elements.boost) x.boost = Boolean(x.choices.length && f.elements.boost.checked);
+    }
     if (x.ui === "create") {
       x.pack = x.pack.size ? JSON.parse(await x.pack.text()) : null;
       x.settings = {};
@@ -2345,11 +2519,14 @@ if (projectorPage) {
     location.replace("/admin?session=" + encodeURIComponent(auth.code));
   else if (auth)
     refresh(true).then(async () => {
+      if (hash.has("article")) return openPressLink();
       const card = hash.get("carte");
-      if (!card || role() !== "Lobby") return;
+      if (!card || (role() !== "Lobby" && !v.pressDirectory)) return;
       history.replaceState(null,"",location.pathname);
       try {
-        scannedCard=await call("card",{code:v.code,card}); tab="Ma carte"; render();
+        scannedCard=await call("card",{code:v.code,card});
+        if (v.pressDirectory) return run({ui:"savePressCard",card:scannedCard.card});
+        tab="Ma carte"; render();
       } catch(e) { say(e.message); }
     }).catch((e) => {
       say(e.message);

@@ -999,3 +999,8 @@ body:has(.projector.stage) > header {
   .participant-print article h2 {font: bold 12pt/1.2 sans-serif;margin:1mm 0;}
   .participant-print .card-qr {width:40mm;max-width:100%;margin:2mm auto 0;}
 }
+
+.vote-wallet { font-weight: 700; color: #204c58; }
+.opinion-choice small { color: #435666; margin-inline-start: .35rem; }
+.ballot-options label:has(input:disabled) { opacity: .6; }
+.ballot-boost { display: flex; align-items: center; gap: .65rem; }

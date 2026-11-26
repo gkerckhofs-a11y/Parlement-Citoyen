@@ -22,7 +22,8 @@ test("Chaque joueur a une carte publique stable, limitée à son affectation act
       member.role === "Lobby" ? demo.lobbies[group].name : demo.media[group];
     assert.match(own.card, /^[A-Za-z0-9_-]{24}$/);
     assert.deepEqual(own, { code: s.code, card: own.card, id: member.id,
-      role: member.role, groupName, room: member.room, roomName: demo.rooms[member.room] || "" });
+      role: member.role, ...(member.role === "Citoyen" ? { group: member.group } : {}),
+      groupName, room: member.room, roomName: demo.rooms[member.room] || "" });
     assert.deepEqual(member.card, own);
     assert.deepEqual(readVisitCard(s, own.card), own);
   }
@@ -33,9 +34,31 @@ test("Chaque joueur a une carte publique stable, limitée à son affectation act
   act(s, s.members.REG, { type: "assign", member: "C1", group: "T2", room: "C" });
   const restored = JSON.parse(JSON.stringify(s));
   assert.deepEqual(readVisitCard(restored, card), {
-    code: s.code, card, id: "C1", role: "Citoyen", groupName: demo.territories[2].name,
+    code: s.code, card, id: "C1", role: "Citoyen", group: "T2", groupName: demo.territories[2].name,
     room: "C", roomName: demo.rooms.C,
   });
+});
+
+test("Le code de territoire d’une partie ancienne suit son affectation sur le compte, le QR et la carte imprimée", () => {
+  const session = create(structuredClone(demo), 50);
+  delete session.rulesVersion;
+  const s = JSON.parse(JSON.stringify(session));
+  const card = view(s, s.members.C1).myCard.card;
+  const name = "Territoire de la commune";
+  s.pack.territories[0].name = s.pack.territories[1].name = name;
+  for (const group of ["T0", "T1"]) {
+    act(s, s.members.REG, { type: "assign", member: "C1", group, room: "C" });
+    const own = view(s, s.members.C1);
+    assert.equal(own.me.group, group);
+    assert.equal(own.me.groupName, name);
+    const publicCard = readVisitCard(s, card);
+    assert.deepEqual(publicCard, {
+      code: s.code, id: "C1", card, role: "Citoyen", group, groupName: name,
+      room: "C", roomName: s.pack.rooms.C,
+    });
+    assert.deepEqual(own.myCard, publicCard);
+    assert.deepEqual(view(s, s.members.REG).roster.find((m) => m.id === "C1").card, publicCard);
+  }
 });
 
 test("Le QR public identifie le destinataire et seule une session lobby authentifiée peut lui proposer un point", async () => {

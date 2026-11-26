@@ -934,13 +934,6 @@ body:has(.projector.stage) > header {
   font: 650 1.2rem/1 var(--serif);
   box-shadow: inset 0 0 0 3px #fff4;
 }
-.group-tint-1 { background: #784450; }
-.group-tint-2 { background: #30624f; }
-.group-tint-3 { background: #604a72; }
-.group-tint-4 { background: #73512b; }
-.group-tint-5 { background: #255d68; }
-.group-tint-6 { background: #645c35; }
-.group-tint-7 { background: #414e78; }
 .group-members,
 .group-messages { margin: 0; padding: 0; list-style: none; }
 .group-members li { padding-block: 0.25rem; }
@@ -1004,3 +997,23 @@ body:has(.projector.stage) > header {
 .opinion-choice small { color: #435666; margin-inline-start: .35rem; }
 .ballot-options label:has(input:disabled) { opacity: .6; }
 .ballot-boost { display: flex; align-items: center; gap: .65rem; }
+
+
+/* Role colours identify the participant across tabs; the group mark identifies their team. */
+body[data-player-role] > header { background: var(--role-color); border-bottom-color: var(--role-pale); }
+body[data-player-role] #session { display: inline-flex; align-items: center; gap: .45rem; color: white; }
+.identity-symbol { width: 1.25em; height: 1.25em; display: inline-block; flex: none; vertical-align: middle; }
+body[data-player-role] .lead { border-bottom-color: var(--role-color); }
+body[data-player-role] .player-tabs > button[aria-current="true"] { background: var(--role-color); border-color: var(--role-color); }
+body[data-player-role] .player-tabs > button:hover:not([aria-current="true"]) { background: var(--role-pale); }
+body[data-player-role] .group-mark { color: white; background: var(--territory-color); box-shadow: none; }
+body[data-player-role] .group-mark svg { width: 1.7rem; height: 1.7rem; }
+body[data-player-role] .group-identity strong { font-size: 1.13rem; }
+body[data-player-role] .group-identity small { color: var(--role-color); font-weight: 650; }
+.badge-guide { margin: 1rem 0; padding: .9rem 1rem; border: 1px solid var(--rule); border-radius: .5rem; }
+.badge-guide small { display: block; margin-block: .45rem; color: var(--mute); }
+.badge-guide h3, .badge-guide p { margin: 0 0 .55rem; }
+.badge-key { display: flex; gap: .5rem 1rem; flex-wrap: wrap; list-style: none; padding: 0; margin: .8rem 0; }
+.badge-key li { display: inline-flex; align-items: center; gap: .4em; }
+.badge-previews { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,14rem),1fr)); gap: .85rem; margin-block: 1rem; }
+.badge-key-territories svg { color: var(--territory-color); }

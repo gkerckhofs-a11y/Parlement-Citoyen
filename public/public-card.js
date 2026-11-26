@@ -1,3 +1,6 @@
+import { visitBadge } from "./participant-cards.js?v=identite1";
+const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) =>
+  ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[char]);
 const main = document.querySelector("#card");
 function element(tag, text) {
   const node = document.createElement(tag);
@@ -18,18 +21,9 @@ async function load() {
   if (!response.ok) throw Error("Cette carte de visite est introuvable.");
   const info = await response.json();
   const section = element("section", "");
-  section.className = "personal-card";
-  section.append(
-    element("h1", "Carte de visite"),
-    element("h2", [info.gameName, info.id, info.role].filter(Boolean).join(" · ")),
-    element(
-      "p",
-      [info.groupName, info.roomName && "Commission " + info.roomName]
-        .filter(Boolean)
-        .join(" · "),
-    ),
-    element("small", "Parlement citoyen · Séance " + code),
-  );
+  section.className = "badge-view";
+  section.append(element("h1","Carte de visite"));
+  section.insertAdjacentHTML("beforeend", visitBadge(info, escapeHtml));
   main.replaceChildren(section);
   const stored = JSON.parse(sessionStorage.getItem("pc.auth") || "null");
   if (
@@ -46,13 +40,7 @@ async function load() {
     link.className = "desk-link";
     link.href = "/#carte=" + card;
     section.append(element("p", ""), link);
-  } else if (info.role === "Citoyen")
-    section.append(
-      element(
-        "p",
-        "Pour proposer un point, un lobby peut scanner cette carte depuis son interface.",
-      ),
-    );
+  }
 }
 load().catch((e) =>
   main.replaceChildren(

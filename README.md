@@ -20,7 +20,7 @@ Dans les nouvelles sessions, la réserve personnelle commence à 2 points et peu
 
 Les répétitions « Votes et influence » de l’administration reprennent le scénario pilote pour les commissions, les duels et le débriefing. Elles s’ouvrent avec le compte organisateur et conservent les essais déjà effectués.
 
-Chaque joueur retrouve ses deux QR dans **Ma carte**. La carte de visite partage l’identité de jeu. Le bouton **Afficher mon QR d’accès privé** révèle le code personnel qui permet de reprendre ce rôle. Dans **Accès et présences**, la régie imprime séparément les cartes de visite à montrer et les accès privés à remettre aux joueurs.
+Chaque joueur retrouve ses deux QR dans **Ma carte**. La carte de visite partage l’identité de jeu. Le bouton **Afficher mon QR d’accès privé** révèle le code personnel qui permet de reprendre ce rôle. Dans **Accès et présences → Badges à porter**, la régie imprime les cartes de visite publiques en portrait (54 × 85 mm, neuf par feuille A4 à 100 %). Le bandeau bleu des citoyens, prune des journalistes ou ocre des lobbyistes correspond à leur écran. Les citoyens retrouvent aussi le nom, la nuance et le symbole de leur territoire. Les accès privés s’impriment séparément.
 
 
 ## Scénarios

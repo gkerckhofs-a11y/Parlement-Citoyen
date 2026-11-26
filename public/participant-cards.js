@@ -1,3 +1,4 @@
+import { identityMark, identityStyle, identityTheme, roleMark } from "./player-identity.js";
 import { qrSvg, startCardCamera, readCardImage } from "./qr-code.js";
 
 export function cardUrl(person, origin = location.origin) {
@@ -18,72 +19,47 @@ export function parseCard(value, origin = location.origin) {
   return match && { code: match[1], card: match[2] };
 }
 
-function identity(person, h) {
-  return (
-    "<h2>" +
-    h([person.gameName, person.id].filter(Boolean).join(" · ")) +
-    " · " +
-    h(person.role) +
-    "</h2><p>" +
-    h(
-      [person.groupName, person.roomName && "Commission " + person.roomName]
-        .filter(Boolean)
-        .join(" · "),
-    ) +
-    "</p>"
-  );
+export function visitBadge(person, h) {
+  const theme = identityTheme(person);
+  const citizen = person.role === "Citoyen";
+  const affiliation = citizen ? theme.territoryLabel || person.groupName : person.groupName;
+  const dense = [person.gameName, affiliation, person.roomName].join(" ").length > 100;
+  return '<div class="visit-badge' + (dense ? ' visit-badge-dense' : '') + '" style="' + h(identityStyle(person)) + '">' +
+    '<div class="visit-badge-mast"><span class="visit-badge-slot" aria-hidden="true"></span><span>Parlement citoyen</span></div>' +
+    '<div class="visit-badge-role"><svg class="visit-badge-band" aria-hidden="true" focusable="false">' +
+    '<rect width="100%" height="100%" fill="currentColor"/></svg><span class="visit-badge-role-title">' +
+    roleMark(person) + h(theme.roleLabel) + '</span></div>' +
+    '<div class="visit-badge-identity"><h2>' + h(person.id) + '</h2>' +
+    (person.gameName ? '<p class="visit-badge-name">' + h(person.gameName) + '</p>' : '') + '</div>' +
+    '<div class="visit-badge-affiliation">' +
+    (citizen ? '<span class="visit-badge-mark" role="img" aria-label="' + h(theme.markName) + '">' +
+      identityMark(person) + '</span>' : '') + '<div><strong>' + h(affiliation) + '</strong>' +
+    (person.roomName ? '<small>Commission · ' + h(person.roomName) + '</small>' : '') + '</div></div>' +
+    '<div class="visit-badge-code"><div class="card-qr">' + qrSvg(cardUrl(person)) + '</div>' +
+    '<p>Carte de visite</p></div></div>';
 }
-
+function privatePass(person, privateLink, h) {
+  return '<div class="private-pass"><h2>' + h(person.id) + ' · ' + h(identityTheme(person).roleLabel) + '</h2>' +
+    '<div class="card-qr">' + qrSvg(privateLink) + '</div>' +
+    '<p>Ce QR ouvre votre compte de jeu. Gardez-le pour vous.</p></div>';
+}
 export function showPersonalCard(person, privateLink, privateMode, ui) {
   const { h, btn } = ui;
   const publicUrl = cardUrl(person);
-  const value = privateMode ? privateLink : publicUrl;
-  return (
-    '<section class="personal-card"><h1>' +
-    (privateMode ? "Mon accès privé" : "Ma carte de visite") +
-    "</h1>" +
-    identity(person, h) +
-    '<div class="card-qr">' +
-    qrSvg(value) +
-    "</div>" +
-    (privateMode
-      ? "<p>Ce code ouvre votre interface et permet d’agir en votre nom. Gardez-le pour vous.</p>"
-      : "<p>Montrez ce code pour partager votre identité de jeu.</p>") +
-    '<div class="actions">' +
-    (privateMode
-      ? ""
-      : '<a href="' +
-        h(publicUrl) +
-        '" rel="noopener" target="_blank">Voir ma fiche publique</a>') +
-    (privateMode
-      ? ""
-      : btn("Scanner une carte de visite", { ui: "scanCard" }, true)) +
-    btn(
-      privateMode ? "Masquer mon accès privé" : "Afficher mon QR d’accès privé",
-      { ui: "cardPrivacy", private: !privateMode },
-      true,
-    ) +
-    "</div></section>"
-  );
+  return '<section class="badge-view"><h1>' + (privateMode ? "Mon accès privé" : "Ma carte de visite") +
+    '</h1>' + (privateMode ? privatePass(person, privateLink, h) : visitBadge(person, h)) +
+    '<div class="actions">' + (privateMode ? "" :
+      '<a href="' + h(publicUrl) + '" rel="noopener" target="_blank">Voir ma fiche publique</a>' +
+      btn("Scanner une carte de visite", { ui: "scanCard" }, true)) +
+    btn(privateMode ? "Masquer mon accès privé" : "Afficher mon QR d’accès privé",
+      { ui: "cardPrivacy", private: !privateMode }, true) + '</div></section>';
 }
-
-export function showPublicCard(person, lobby, ui) {
-  const { h, btn } = ui;
-  let action = "";
-  if (lobby && person.code === lobby.code && person.role === "Citoyen")
-    action = btn("Préparer une offre pour " + person.id, {
-      ui: "useRecipient",
-      id: person.id,
-    });
-  return (
-    '<section class="personal-card"><h1>Carte de visite</h1>' +
-    identity(person, h) +
-    "<p>Parlement citoyen · Séance " +
-    h(person.code) +
-    "</p>" +
-    action +
-    "</section>"
-  );
+export function showPublicCard(person, lobby, { h, btn }) {
+  const canOffer = lobby && person.code === lobby.code && person.role === "Citoyen";
+  return '<section class="badge-view"><h1>Carte de visite</h1>' + visitBadge(person, h) +
+    (canOffer ? '<div class="actions">' + btn("Préparer une offre pour " + person.id, {
+      ui: "useRecipient", id: person.id,
+    }) + '</div>' : "") + '</section>';
 }
 
 // This dialog lives outside the auto-refreshed game view. Closing it releases the camera.
@@ -179,26 +155,17 @@ export function scanCard({ session, lookup, onCard }) {
 
 export function printParticipantCards(view, privateMode, { h, link }) {
   const sheet = document.createElement("div");
-  sheet.className = "participant-print";
+  sheet.className = "participant-print " + (privateMode ? "private-pass-sheet" : "visit-badge-sheet");
   const sheets = [];
   const people = view.roster.filter((p) => p.card);
   for (let i = 0; i < people.length; i += 9) {
-    const page = people
-      .slice(i, i + 9)
-      .map(
-        (p) =>
-          "<article><strong>" +
-          (privateMode
-            ? "Accès privé · à conserver"
-            : "Carte de visite · à partager") +
-          "</strong>" +
-          identity(p.card, h) +
-          '<div class="card-qr">' +
-          qrSvg(privateMode ? link(p) : cardUrl(p.card)) +
-          "</div></article>",
-      )
-      .join("");
-    sheets.push("<section>" + page + "</section>");
+    const page = people.slice(i, i + 9).map((p) => {
+      const person = { group:p.group, ...p.card };
+      if (privateMode) return '<div class="private-ticket"><strong>Accès privé</strong>' +
+        privatePass(person, link(p), h) + '</div>';
+      return visitBadge(person, h);
+    }).join("");
+    sheets.push('<section class="badge-print-page">' + page + '</section>');
   }
   sheet.innerHTML = sheets.join("");
   document.body.append(sheet);

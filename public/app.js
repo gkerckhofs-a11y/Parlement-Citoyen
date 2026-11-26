@@ -1,7 +1,8 @@
+import { identityMark, identityStyle, identityTheme, roleMark } from "./player-identity.js?v=identite1";
 import { currentResult, duelBallot, measureBallot, walletLabel } from "./citizen-ballot.js?v=reserve1";
 import { citizenInfluencePanel, influencePanel, influenceMeasures } from "./influence.js?v=reserve1";
 import { awardPreview, awardReport, changeSources, citedByline, pressAwardNotice, pressSearchResults, pressSelections, pressSourcePanel } from "./press-influence.js?v=reserve1";
-import { showPersonalCard, showPublicCard, scanCard, printParticipantCards } from "./participant-cards.js?v=reserve1";
+import { visitBadge, showPersonalCard, showPublicCard, scanCard, printParticipantCards } from "./participant-cards.js?v=identite1";
 import { plenaryDesk } from "./plenary-desk.js?v=reserve1";
 import {
   projectionLink,
@@ -165,6 +166,7 @@ async function call(op, body) {
   return j;
 }
 function login() {
+  playerEnvironment(null);
   main.className = "portal";
   main.innerHTML =
     '<div class="mast"><h1>Parlement citoyen</h1><p>Entrez dans votre Parlement avec les accès remis par l’organisation.</p></div><div class="grid">' +
@@ -942,19 +944,54 @@ const groupTypes = {
   Journaliste: "Rédaction",
 };
 function groupIdentity() {
-  const words = v.team.name.match(/[\p{L}\p{N}]+/gu) || [];
-  const significant = words.filter((word) => !/^(le|la|les|l|d|du|de|des|et)$/i.test(word));
-  const initials = significant.length > 1
-    ? significant[0][0] + significant[1][0]
-    : (significant[0] || v.me.group).slice(0, 2);
-  const tint = Number(v.me.group.slice(1)) % 8;
+  const person = {...v.me, groupName:v.team.name};
   const room = v.roomNames[v.me.room];
-  return '<div class="group-identity"><span class="group-mark group-tint-' +
-    tint + '" aria-hidden="true">' + h(initials.toLocaleUpperCase("fr-BE")) +
-    '</span><div><small>' + h(groupTypes[role()]) + ' · ' + h(v.me.id) +
-    '</small><strong>' + h(v.team.name) + '</strong>' +
-    (room ? '<span>Commission · ' + h(room) + '</span>' : '') + '</div></div>';
+  return '<div class="group-identity" style="' + identityStyle(person) + '">' +
+    '<span class="group-mark">' + identityMark(person) + '</span><div><small>' +
+    h(groupTypes[role()]) + ' · ' + h(v.me.id) + '</small><strong>' + h(v.team.name) +
+    '</strong>' + (room ? '<span>Commission · ' + h(room) + '</span>' : '') + '</div></div>';
 }
+
+function playerEnvironment(person) {
+  const body = document.body;
+  const theme = identityTheme(person);
+  if (theme.roleKey) {
+    body.dataset.playerRole = theme.roleKey;
+    body.style.setProperty("--role-color",theme.color);
+    body.style.setProperty("--role-pale",theme.pale);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content",theme.color);
+  } else if (body.dataset.playerRole) {
+    delete body.dataset.playerRole;
+    body.style.removeProperty("--role-color");
+    body.style.removeProperty("--role-pale");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content","#1c3443");
+  }
+}
+
+function badgeGuide() {
+  const territories = (v.template?.territories || []).map((t,index) => {
+    const person = {role:"Citoyen", group:"T"+index, groupName:t.name};
+    return '<li style="' + identityStyle(person) + '">' + identityMark(person) + h(t.name) + '</li>';
+  });
+  return '<section id="badges" class="badge-guide" tabindex="-1"><h3>Badges à porter</h3>' +
+    para("Le QR de visite se porte autour du cou. L’accès privé est à remettre séparément à son titulaire.") +
+    btn("Imprimer les badges à porter",{ui:"printCards"}) +
+    '<small>Format portrait · 54 × 85 mm · 9 par feuille A4 · Imprimer à 100 %</small>' +
+    '<details data-badge-preview><summary>Voir les badges avant impression</summary>' +
+    '<div class="badge-previews"></div><h4>Repères des territoires</h4>' +
+    '<ul class="badge-key badge-key-territories">' + territories.join("") + '</ul></details></section>';
+}
+main.addEventListener("toggle", event => {
+  const details = event.target;
+  if (!details.matches?.("[data-badge-preview]") || !details.open || !v?.roster) return;
+  const preview = details.querySelector(".badge-previews");
+  if (preview.childElementCount) return;
+  preview.innerHTML = ["Citoyen","Journaliste","Lobby"].flatMap(role => {
+    const player = v.roster.find(p => p.role === role && p.card);
+    return player ? [visitBadge(player.card,h)] : [];
+  }).join("");
+},true);
+
 function groupMembers() {
   const members = v.team?.members;
   if (!members) return "";
@@ -1409,7 +1446,7 @@ function admin() {
             ? btn("Diffuser aux rédactions", { type: "wire", id: w.id }) : tag("À diffuser")))).join(""));
     out += details(
       "Accès et présences · " + v.roster.length,
-      '<div class="actions">' + btn("Imprimer les cartes de visite", {ui:"printCards"},true) +
+      badgeGuide() + '<div class="actions">' +
       btn("Imprimer les accès privés", {ui:"printCards",private:true},true) + '</div>' +
       btn("Télécharger les accès", { ui: "access" }) +
         v.roster
@@ -1777,6 +1814,7 @@ main.addEventListener("click", async (e) => {
   }
 });
 function render() {
+  playerEnvironment(v.me);
   main.className = role() === "Projection" ? "projector" : "session-view";
   sessionLabel.textContent = v.code + " · " + v.me.role;
   if (role() === "Projection") {
@@ -1850,9 +1888,8 @@ function render() {
     return;
   }
   const participant = !chair();
-  if (participant)
-    sessionLabel.textContent =
-      role() === "Lobby" ? "Groupe d’influence" : role();
+  if (v.team) sessionLabel.innerHTML = roleMark(v.me) + "<b>" + h(identityTheme(v.me).roleLabel) + "</b>";
+  else if (participant) sessionLabel.textContent = role();
   const citizen = role() === "Citoyen";
   let tabs = citizen ? ["Assemblée","Vote","Influence","Journal"] : ["Assemblée","Journal"];
   if (v.me.group) tabs.push("Mon équipe");
@@ -1910,7 +1947,7 @@ function render() {
       .slice(-1)
       .map((n) => section("Annonce du Parlement", para(n)))
       .join("") +
-    "<nav>" +
+    '<nav class="player-tabs">' +
     (role() === "Modérateur"
       ? '<button type="button" data-desk-return>Ma régie de commission</button>'
       : "") +
@@ -2499,6 +2536,13 @@ export function openGoogleDesk(code, state) {
   v = state;
   last = JSON.stringify(state);
   render();
+  if (location.hash === "#badges") {
+    const guide = document.getElementById("badges");
+    if (guide) {
+      guide.closest("details").open = true;
+      guide.focus();
+    }
+  }
 }
 if (projectorPage) {
   if (auth) refresh(true).catch((error) => offerWallAccess(error.message));

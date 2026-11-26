@@ -82,7 +82,7 @@ async function enter(code) {
     location.replace(path);
     return;
   }
-  const { openGoogleDesk } = await import("./app.js?v=reserve1");
+  const { openGoogleDesk } = await import("./app.js?v=identite1");
   if (url.searchParams.get("session") !== code) {
     for (const name of ["commission", "projection", "regie", "essai"])
       url.searchParams.delete(name);

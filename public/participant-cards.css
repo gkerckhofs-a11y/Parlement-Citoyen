@@ -1,0 +1,201 @@
+.badge-view {
+  width: min(100%, 27rem);
+  margin: 1rem auto 2rem;
+}
+.badge-view h1 {
+  margin: 0 0 1rem;
+  font-size: clamp(1.8rem, 5vw, 2.45rem);
+}
+.badge-view .actions, .badge-view > .desk-link {
+  margin-block: 1rem;
+}
+.visit-badge, .private-pass {
+  box-sizing: border-box;
+  min-width: 0;
+  background: white;
+  color: #1c3443;
+  overflow-wrap: anywhere;
+}
+.visit-badge {
+  width: min(100%, 21rem);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border: 1px solid #9ca8ad;
+  border-radius: .65rem;
+  box-shadow: 0 3px 12px #23333c13;
+  text-align: center;
+  font: 500 1rem/1.2 Inter, Arial, sans-serif;
+}
+.visit-badge-mast {
+  display: grid;
+  justify-items: center;
+  gap: .45rem;
+  padding: .8rem .5rem .6rem;
+  font-size: .76rem;
+  letter-spacing: .065em;
+  font-weight: 600;
+}
+.visit-badge-slot {
+  width: 1.9rem;
+  height: .42rem;
+  border: 1px solid #9ca8ad;
+  border-radius: 1rem;
+}
+.visit-badge-role {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: .5em;
+  border-block: 1px solid var(--role-color);
+  font-size: 1.25rem;
+  font-weight: 750;
+}
+.visit-badge-band {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--role-color);
+}
+.visit-badge-role-title, .visit-badge-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.visit-badge-role-title {
+  position: relative;
+  gap: .45em;
+  color: white;
+}
+.visit-badge-role-title svg {
+  width: 1.25em;
+  height: 1.25em;
+}
+.visit-badge-identity {
+  padding: .65rem 1rem .55rem;
+}
+.visit-badge .visit-badge-identity h2 {
+  color: var(--role-color);
+  font: 750 clamp(2.3rem, 10vw, 3.25rem)/1 Inter, Arial,sans-serif;
+  letter-spacing: -.045em;
+  margin: 0;
+}
+.visit-badge .visit-badge-name {
+  font-size: 1.12rem;
+  font-weight: 650;
+  margin: .27rem 0 0;
+}
+.visit-badge-affiliation {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: .65rem;
+  text-align: left;
+  padding: .35rem 1rem .45rem;
+}
+.visit-badge-mark {
+  width: 2rem;
+  height: 2rem;
+  color: var(--territory-color, var(--role-color));
+}
+.visit-badge-mark svg { width: 100%; height: 100%; }
+.visit-badge-affiliation > div { min-width: 0; }
+.visit-badge-affiliation strong, .visit-badge-affiliation small { display: block; }
+.visit-badge-affiliation strong { font-weight: 700; }
+.visit-badge-affiliation small {
+  color: #465761;
+  font-size: .82rem;
+  margin-top: .18rem;
+}
+.visit-badge-code {
+  margin-block: auto 0;
+  padding: .25rem .5rem .85rem;
+}
+.visit-badge .card-qr {
+  width: min(11rem, 80%);
+  margin: 0 auto;
+}
+.visit-badge-code p {
+  margin: .1rem auto 0;
+  font-size: .75rem;
+  color: #465761;
+}
+.private-pass {
+  border: 1px dashed #67767c;
+  padding: 1rem;
+  text-align: center;
+}
+.private-pass h2 { font-size: 1.4rem; margin: 0; }
+.private-pass p { margin: .5rem 0 0; }
+
+@page participant-badges {
+  size: A4 portrait;
+  margin: 8mm;
+}
+@media print {
+  .participant-print {
+    page: participant-badges;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .participant-print .badge-print-page {
+    display: grid;
+    grid-template-columns: repeat(3, 54mm);
+    grid-template-rows: repeat(3, 85mm);
+    gap: 2mm;
+    width: 166mm;
+    margin: 0 auto;
+    padding: 0;
+    break-inside: avoid;
+    break-after: page;
+  }
+  .participant-print .badge-print-page:last-child { break-after: auto; }
+  .participant-print .visit-badge, .participant-print .private-ticket {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    align-self: stretch;
+    margin: 0;
+    border: .2mm dashed #7d8b8f;
+    border-radius: .7mm;
+    box-shadow: none;
+    break-inside: avoid;
+    text-align: center;
+    font: 500 9pt/1.1 Inter, Arial, sans-serif;
+  }
+  .participant-print .visit-badge-mast {
+    padding: 2.6mm 2mm 1.4mm;
+    gap: .8mm;
+    font-size: 6.5pt;
+  }
+  .participant-print .visit-badge-slot { width: 8mm; height: 2.2mm; border-width: .2mm; }
+  .participant-print .visit-badge-role { font-size: 14pt; padding: 1.65mm; border-width: .2mm; }
+  .participant-print .visit-badge-identity { padding: 1.7mm 2.3mm .7mm; }
+  .participant-print .visit-badge-identity h2 { font-size: 22pt; }
+  .participant-print .visit-badge-name { margin: .6mm 0 0; font-size: 9.5pt; }
+  .participant-print .visit-badge-affiliation { padding: .5mm 2.2mm; gap: 1.2mm; }
+  .participant-print .visit-badge-mark { width: 6mm; height: 6mm; }
+  .participant-print .visit-badge-affiliation strong { font-size: 9pt; }
+  .participant-print .visit-badge-affiliation small { font-size: 7.3pt; margin-top: .3mm; }
+  .participant-print .visit-badge-code { padding: .4mm 2mm 1.6mm; }
+  .participant-print .visit-badge .card-qr { width: 28mm; margin: 0 auto; }
+  .participant-print .visit-badge-code p { font-size: 6.5pt; margin: 0; }
+  .participant-print .visit-badge-dense .visit-badge-name { font-size: 8pt; }
+  .participant-print .visit-badge-dense .visit-badge-affiliation strong { font-size: 8pt; }
+  .participant-print .visit-badge-dense .visit-badge-affiliation small { font-size: 6.7pt; }
+  .participant-print .visit-badge-dense .card-qr { width: 25mm; }
+  .participant-print .private-ticket {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3mm;
+  }
+  .participant-print .private-ticket > strong { margin-bottom: 2mm; font-size: 12pt; }
+  .participant-print .private-pass { border: 0; padding: 0; }
+  .participant-print .private-pass h2 { font-size: 10pt; }
+  .participant-print .private-pass .card-qr { width: 34mm; margin: 2mm auto; }
+  .participant-print .private-pass p { font-size: 8pt; }
+}

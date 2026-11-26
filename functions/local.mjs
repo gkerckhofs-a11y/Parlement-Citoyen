@@ -43,6 +43,8 @@ const app = api(
   adminKey,
 );
 const publicFiles = {
+  "/participant-cards.css": ["participant-cards.css", "text/css"],
+  "/player-identity.js": ["player-identity.js", "text/javascript"],
   "/participant-cards.js": ["participant-cards.js", "text/javascript"],
   "/press-influence.js": ["press-influence.js", "text/javascript"],
   "/public-card.js": ["public-card.js", "text/javascript"],

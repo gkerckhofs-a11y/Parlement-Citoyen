@@ -39,6 +39,7 @@ function visitCard(s, member, card = cardId(s, member.id)) {
     card,
     id: member.id,
     role: member.role,
+    ...(member.role === "Citoyen" ? { group: member.group } : {}),
     ...(member.gameName ? { gameName: member.gameName } : {}),
     groupName: memberGroup(s.pack, member)?.name || member.group,
     room: member.room,
@@ -1461,6 +1462,7 @@ export function view(s, a) {
     }
   }
   if (cardRoles.has(a.role)) result.myCard = visitCard(s, a);
+  if (a.role === "Citoyen") result.me.groupName = result.myCard.groupName;
   if (s.rulesVersion === 2 && a.role === "Citoyen")
     result.wallet = {points: walletPoints(s, a.id), cap: walletCap};
   if (a.role === "Lobby" || a.role === "Citoyen") {
